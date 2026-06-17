@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { computeDayChanges } from "@/lib/utils";
-import type { Broker, DayData, SnapshotWithBrokers, ViewMode } from "@/types";
+import type { Broker, DayData, SnapshotWithBrokers } from "@/types";
 import Header from "./Header";
 import ViewSelector from "./ViewSelector";
 import Calendar from "./Calendar";
@@ -20,7 +20,10 @@ export default function Dashboard({ user }: Props) {
   const supabase = createClient();
   const [brokers, setBrokers] = useState<Broker[]>([]);
   const [snapshots, setSnapshots] = useState<SnapshotWithBrokers[]>([]);
-  const [viewMode, setViewMode] = useState<ViewMode>("total");
+  
+  // 升級：改成陣列，儲存多個券商 ID
+  const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
+  
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [showEntry, setShowEntry] = useState(false);
   const [showBrokers, setShowBrokers] = useState(false);
@@ -30,17 +33,15 @@ export default function Dashboard({ user }: Props) {
     setLoading(true);
 
     const [brokersRes, snapshotsRes] = await Promise.all([
-      supabase
-        .from("brokers")
-        .select("*")
-        .order("sort_order", { ascending: true }),
-      supabase
-        .from("daily_snapshots")
-        .select("*, broker_snapshots(*)")
-        .order("snapshot_date", { ascending: true }),
+      supabase.from("brokers").select("*").order("sort_order", { ascending: true }),
+      supabase.from("daily_snapshots").select("*, broker_snapshots(*)").order("snapshot_date", { ascending: true }),
     ]);
 
-    if (brokersRes.data) setBrokers(brokersRes.data);
+    if (brokersRes.data) {
+      setBrokers(brokersRes.data);
+      // 初次載入時，預設把所有券商都勾選起來
+      setSelectedBrokers((prev) => prev.length === 0 ? brokersRes.data.map(b => b.id) : prev);
+    }
     if (snapshotsRes.data) setSnapshots(snapshotsRes.data as SnapshotWithBrokers[]);
     setLoading(false);
   }, [supabase]);
@@ -49,30 +50,21 @@ export default function Dashboard({ user }: Props) {
     fetchData();
   }, [fetchData]);
 
+  // 核心計算大腦：根據勾選的券商重新加總每一天的金額
   const dayDataMap = useMemo(() => {
     const entries = snapshots.map((s) => {
-      if (viewMode === "total") {
-        return { date: s.snapshot_date, amount: Number(s.total_amount) };
-      }
-      const brokerSnap = s.broker_snapshots?.find(
-        (bs) => bs.broker_id === viewMode
-      );
-      return {
-        date: s.snapshot_date,
-        amount: brokerSnap ? Number(brokerSnap.amount) : 0,
-      };
+      let totalAmountForSelected = 0;
+      s.broker_snapshots?.forEach((bs) => {
+        if (selectedBrokers.includes(bs.broker_id)) {
+          totalAmountForSelected += Number(bs.amount);
+        }
+      });
+      return { date: s.snapshot_date, amount: totalAmountForSelected };
     });
 
-    const changes = computeDayChanges(
-      entries.filter((e) => e.amount > 0 || viewMode === "total")
-    );
-
+    const changes = computeDayChanges(entries);
     return new Map(changes.map((d) => [d.date, d]));
-  }, [snapshots, viewMode]);
-
-  const chartData: DayData[] = useMemo(() => {
-    return Array.from(dayDataMap.values());
-  }, [dayDataMap]);
+  }, [snapshots, selectedBrokers]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -89,16 +81,15 @@ export default function Dashboard({ user }: Props) {
       />
 
       <main className="space-y-4 px-4 pb-8 pt-4">
+        {/* 新版的多選選單 */}
         <ViewSelector
-          viewMode={viewMode}
           brokers={brokers}
-          onChange={setViewMode}
+          selectedBrokers={selectedBrokers}
+          onChange={setSelectedBrokers}
         />
 
         {loading ? (
-          <div className="flex h-64 items-center justify-center text-sm text-muted">
-            載入中...
-          </div>
+          <div className="flex h-64 items-center justify-center text-sm text-muted">載入中...</div>
         ) : (
           <>
             <Calendar
@@ -106,30 +97,20 @@ export default function Dashboard({ user }: Props) {
               onMonthChange={setCurrentMonth}
               dayDataMap={dayDataMap}
             />
-            <TrendChart data={chartData} />
+            {/* 圖表現在自己處理時間區間，我們把資料池和當前行事曆月份傳給它 */}
+            <TrendChart 
+              dayDataMap={dayDataMap} 
+              currentMonth={currentMonth} 
+            />
           </>
         )}
       </main>
 
       {showEntry && (
-        <EntryModal
-          brokers={brokers}
-          onClose={() => setShowEntry(false)}
-          onSaved={() => {
-            setShowEntry(false);
-            fetchData();
-          }}
-        />
+        <EntryModal brokers={brokers} onClose={() => setShowEntry(false)} onSaved={() => { setShowEntry(false); fetchData(); }} />
       )}
-
       {showBrokers && (
-        <BrokerManager
-          brokers={brokers}
-          onClose={() => setShowBrokers(false)}
-          onChanged={() => {
-            fetchData();
-          }}
-        />
+        <BrokerManager brokers={brokers} onClose={() => setShowBrokers(false)} onChanged={() => { fetchData(); }} />
       )}
     </div>
   );
