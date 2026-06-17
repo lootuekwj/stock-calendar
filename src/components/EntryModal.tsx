@@ -14,23 +14,89 @@ type Props = {
 export default function EntryModal({ brokers, onClose, onSaved }: Props) {
   const supabase = createClient();
   const today = toDateString(new Date());
+  
   const [date, setDate] = useState(today);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // 新增：用來記錄這天是不是已經有存過資料了
+  const [existingId, setExistingId] = useState<string | null>(null);
+  const [loadingData, setLoadingData] = useState(false);
 
+  // 升級版：當「日期」改變時，自動去資料庫檢查那天有沒有舊資料
   useEffect(() => {
-    const initial: Record<string, string> = {};
-    brokers.forEach((b) => {
-      initial[b.id] = "";
-    });
-    setAmounts(initial);
-  }, [brokers]);
+    const fetchExistingData = async () => {
+      setLoadingData(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // 尋找這天的總紀錄
+      const { data: snapshot } = await supabase
+        .from("daily_snapshots")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("snapshot_date", date)
+        .single();
+
+      if (snapshot) {
+        setExistingId(snapshot.id);
+        // 如果有總紀錄，把各券商的金額抓出來
+        const { data: brokerRows } = await supabase
+          .from("broker_snapshots")
+          .select("broker_id, amount")
+          .eq("daily_snapshot_id", snapshot.id);
+
+        const fetchedAmounts: Record<string, string> = {};
+        brokers.forEach((b) => {
+          fetchedAmounts[b.id] = ""; // 先預設為空
+        });
+
+        if (brokerRows) {
+          brokerRows.forEach((row) => {
+            fetchedAmounts[row.broker_id] = row.amount.toString();
+          });
+        }
+        setAmounts(fetchedAmounts);
+      } else {
+        // 如果這天沒資料，清空所有格子
+        setExistingId(null);
+        const initial: Record<string, string> = {};
+        brokers.forEach((b) => {
+          initial[b.id] = "";
+        });
+        setAmounts(initial);
+      }
+      setLoadingData(false);
+    };
+
+    fetchExistingData();
+  }, [date, brokers, supabase]);
 
   const total = Object.values(amounts).reduce((sum, v) => {
     const n = parseFloat(v);
     return sum + (isNaN(n) ? 0 : n);
   }, 0);
+
+  // 新增：刪除功能
+  const handleDelete = async () => {
+    if (!existingId) return;
+    if (!window.confirm("確定要刪除這天的紀錄嗎？刪除後無法復原喔！")) return;
+
+    setSaving(true);
+    const { error: deleteError } = await supabase
+      .from("daily_snapshots")
+      .delete()
+      .eq("id", existingId);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+    onSaved(); // 重新整理畫面並關閉視窗
+  };
 
   const handleSave = async () => {
     if (brokers.length === 0) {
@@ -49,9 +115,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
     setSaving(true);
     setError("");
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setError("未登入，請重新登入");
       setSaving(false);
@@ -100,6 +164,12 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         setSaving(false);
         return;
       }
+    } else {
+      // 如果使用者清空了所有券商金額但按儲存，就把原本的明細刪掉
+      await supabase
+        .from("broker_snapshots")
+        .delete()
+        .eq("daily_snapshot_id", snapshot.id);
     }
 
     setSaving(false);
@@ -112,9 +182,11 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-md rounded-t-2xl border border-border bg-surface p-5 shadow-xl sm:rounded-2xl sm:mx-4">
+      <div className="relative z-10 w-full max-w-md rounded-t-2xl border border-border bg-surface p-5 shadow-xl sm:mx-4 sm:rounded-2xl">
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">記錄今日資產</h2>
+          <h2 className="text-lg font-semibold text-gray-900">
+            {existingId ? "修改今日資產" : "記錄今日資產"}
+          </h2>
           <button
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-gray-100"
@@ -142,28 +214,32 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
               />
             </div>
 
-            <div className="mb-4 max-h-60 space-y-3 overflow-y-auto">
-              {brokers.map((broker) => (
-                <div key={broker.id}>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                    {broker.name}
-                  </label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="輸入總資產"
-                    value={amounts[broker.id] ?? ""}
-                    onChange={(e) =>
-                      setAmounts((prev) => ({
-                        ...prev,
-                        [broker.id]: e.target.value,
-                      }))
-                    }
-                    className="w-full rounded-xl border border-border px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-              ))}
-            </div>
+            {loadingData ? (
+              <p className="py-4 text-center text-sm text-muted">讀取資料中...</p>
+            ) : (
+              <div className="mb-4 max-h-60 space-y-3 overflow-y-auto">
+                {brokers.map((broker) => (
+                  <div key={broker.id}>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                      {broker.name}
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      placeholder="輸入總資產"
+                      value={amounts[broker.id] ?? ""}
+                      onChange={(e) =>
+                        setAmounts((prev) => ({
+                          ...prev,
+                          [broker.id]: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-border px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="mb-4 rounded-xl bg-gray-50 px-4 py-3">
               <div className="flex items-center justify-between">
@@ -176,23 +252,36 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
           </>
         )}
 
-        {error && (
-          <p className="mb-3 text-sm text-red-500">{error}</p>
-        )}
+        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
 
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-xl border border-border px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-          >
-            取消
-          </button>
+        {/* 下方的按鈕區塊大升級 */}
+        <div className="flex gap-2">
+          {existingId && (
+            <button
+              onClick={handleDelete}
+              disabled={saving}
+              className="flex-1 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600 transition hover:bg-red-100 disabled:opacity-50"
+            >
+              刪除紀錄
+            </button>
+          )}
+          
+          {/* 如果沒有舊資料，取消按鈕就會顯示；有舊資料的話空間給刪除按鈕 */}
+          {!existingId && (
+            <button
+              onClick={onClose}
+              className="flex-1 rounded-xl border border-border px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+            >
+              取消
+            </button>
+          )}
+
           <button
             onClick={handleSave}
-            disabled={saving || brokers.length === 0}
+            disabled={saving || brokers.length === 0 || loadingData}
             className="flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-medium text-white transition hover:bg-primary-hover disabled:opacity-50"
           >
-            {saving ? "儲存中..." : "儲存"}
+            {saving ? "處理中..." : (existingId ? "儲存修改" : "新增紀錄")}
           </button>
         </div>
       </div>
