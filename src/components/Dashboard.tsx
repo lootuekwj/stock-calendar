@@ -96,6 +96,9 @@ export default function Dashboard({ user }: Props) {
               currentMonth={currentMonth}
               onMonthChange={setCurrentMonth}
               dayDataMap={dayDataMap}
+              snapshots={snapshots}
+              brokers={brokers}
+              selectedBrokers={selectedBrokers}
             />
             {/* 圖表現在自己處理時間區間，我們把資料池和當前行事曆月份傳給它 */}
             <TrendChart 

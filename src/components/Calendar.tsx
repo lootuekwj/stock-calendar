@@ -12,13 +12,23 @@ import {
   subMonths,
 } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import type { DayData } from "@/types";
-import { formatCompact, formatPercent, getChangeColor, toDateString } from "@/lib/utils";
+import type { DayData, Broker, SnapshotWithBrokers } from "@/types";
+import { 
+  formatCompact, 
+  formatPercent, 
+  getChangeColor, 
+  toDateString,
+  formatCurrency // 引入這個來格式化浮動卡片裡的金額
+} from "@/lib/utils";
 
 type Props = {
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
   dayDataMap: Map<string, DayData>;
+  // 新增以下三個屬性，接收來自大腦的明細資料
+  snapshots: SnapshotWithBrokers[];
+  brokers: Broker[];
+  selectedBrokers: string[];
 };
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
@@ -33,6 +43,9 @@ export default function Calendar({
   currentMonth,
   onMonthChange,
   dayDataMap,
+  snapshots,
+  brokers,
+  selectedBrokers,
 }: Props) {
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -78,14 +91,25 @@ export default function Calendar({
           const dateStr = toDateString(day);
           const data = dayDataMap.get(dateStr);
           const inMonth = isSameMonth(day, currentMonth);
-          const color = data
-            ? getChangeColor(data.changeAmount)
-            : "neutral";
+          const color = data ? getChangeColor(data.changeAmount) : "neutral";
+
+          // 整理當天游標懸停要顯示的券商明細
+          const dailySnapshot = snapshots.find((s) => s.snapshot_date === dateStr);
+          const dayDetails = dailySnapshot?.broker_snapshots
+            ?.filter((bs) => selectedBrokers.includes(bs.broker_id))
+            .map((bs) => {
+              const broker = brokers.find((b) => b.id === bs.broker_id);
+              return {
+                name: broker?.name || "未知券商",
+                amount: Number(bs.amount),
+              };
+            }) || [];
 
           return (
             <div
               key={dateStr}
-              className={`min-h-[4.5rem] rounded-lg border p-1 transition sm:min-h-[5.5rem] sm:p-1.5 ${
+              // 加入 group 類別，讓 Tailwind 知道這是觸發 Hover 的區塊
+              className={`group relative min-h-[4.5rem] rounded-lg border p-1 transition sm:min-h-[5.5rem] sm:p-1.5 ${
                 inMonth ? colorClasses[color] : "border-transparent opacity-30"
               }`}
             >
@@ -110,6 +134,27 @@ export default function Calendar({
                       )}
                     </>
                   )}
+                </div>
+              )}
+
+              {/* 隱藏的 Tooltip 浮動資訊卡 */}
+              {inMonth && dayDetails.length > 0 && (
+                <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-48 -translate-x-1/2 flex-col rounded-xl border border-gray-700 bg-gray-900 p-3 text-white opacity-0 shadow-xl transition-all group-hover:flex group-hover:opacity-100 sm:w-56">
+                  <div className="mb-2 border-b border-gray-700 pb-1.5 text-xs text-gray-400">
+                    {format(day, "yyyy年MM月dd日")} 資產明細
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {dayDetails.map((d) => (
+                      <div key={d.name} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-300">{d.name}</span>
+                        <span className="font-semibold tracking-wide text-white">
+                          {formatCurrency(d.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 向下的小箭頭 */}
+                  <div className="absolute -bottom-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-gray-700 bg-gray-900"></div>
                 </div>
               )}
             </div>
