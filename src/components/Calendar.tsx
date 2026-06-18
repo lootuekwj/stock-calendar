@@ -15,7 +15,7 @@ type Props = {
   snapshots: SnapshotWithBrokers[];
   brokers: Broker[];
   selectedBrokers: string[];
-  calcMode: "asset" | "profit"; // 接收目前的模式
+  calcMode: "asset" | "profit"; 
 };
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
@@ -54,12 +54,10 @@ export default function Calendar({
           const inMonth = isSameMonth(day, currentMonth);
           const color = data ? getChangeColor(data.changeAmount) : "neutral";
 
-          // 抓取當天資料與前一天資料
           const currentIndex = snapshots.findIndex((s) => s.snapshot_date === dateStr);
           const dailySnapshot = currentIndex !== -1 ? snapshots[currentIndex] : null;
           const prevSnapshot = currentIndex > 0 ? snapshots[currentIndex - 1] : null;
 
-          // 整理浮動卡片要顯示的資料
           const dayDetails = dailySnapshot?.broker_snapshots
             ?.filter((bs) => selectedBrokers.includes(bs.broker_id))
             .map((bs) => {
@@ -101,7 +99,6 @@ export default function Calendar({
                 </div>
               )}
 
-              {/* 終極版 Tooltip：根據模式動態切換顯示內容 */}
               {inMonth && (dayDetails.length > 0 || dailySnapshot?.note) && (
                 <div className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 flex-col rounded-xl border border-gray-700 bg-gray-900 p-3 text-white shadow-xl transition-all sm:w-64 ${isTooltipActive ? "flex opacity-100" : "hidden group-hover:flex group-hover:opacity-100"}`}>
                   <div className="mb-2 flex items-center justify-between border-b border-gray-700 pb-1.5 text-xs text-gray-400">
@@ -111,7 +108,6 @@ export default function Calendar({
                   
                   <div className="flex flex-col gap-2">
                     {dayDetails.map((d) => {
-                      // 核心邏輯：判斷目前模式，決定顯示的主數字和變動數字
                       const isAssetMode = calcMode === "asset";
                       const mainValue = isAssetMode ? d.amount : d.profit;
                       const changeValue = isAssetMode ? d.dailyAssetChange : d.dailyProfitChange;
@@ -128,9 +124,9 @@ export default function Calendar({
                             <span className="text-sm font-semibold text-white">
                               {calcMode === "profit" && mainValue > 0 ? "+" : ""}{formatCurrency(mainValue)}
                             </span>
-                            {/* 紅色為+，綠色為- */}
+                            {/* 移除了「今日」兩個字 */}
                             <span className={`text-xs ${isPositive ? "text-red-400" : isNegative ? "text-green-400" : "text-gray-500"}`}>
-                              今日 {isPositive ? "+" : ""}{formatCurrency(changeValue)}
+                              {isPositive ? "+" : ""}{formatCurrency(changeValue)}
                             </span>
                           </div>
                         </div>
@@ -138,7 +134,6 @@ export default function Calendar({
                     })}
                   </div>
 
-                  {/* 備註顯示區塊 */}
                   {dailySnapshot?.note && (
                     <div className="mt-3 border-t border-gray-700 pt-2 text-[11px] leading-relaxed text-gray-300">
                       📝 {dailySnapshot.note}

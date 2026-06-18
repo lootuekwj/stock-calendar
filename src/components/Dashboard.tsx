@@ -94,7 +94,7 @@ export default function Dashboard({ user }: Props) {
               currentMonth={currentMonth} onMonthChange={setCurrentMonth} dayDataMap={dayDataMap} 
               snapshots={snapshots} brokers={brokers} selectedBrokers={selectedBrokers} calcMode={calcMode}
             />
-            <TrendChart dayDataMap={dayDataMap} currentMonth={currentMonth} />
+           <TrendChart dayDataMap={dayDataMap} currentMonth={currentMonth} calcMode={calcMode} />
           </>
         )}
       </main>

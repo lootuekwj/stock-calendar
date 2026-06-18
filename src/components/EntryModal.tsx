@@ -127,6 +127,17 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
     onSaved();
   };
 
+  // 阻擋非數字輸入的輔助函式 (允許小數點和負號)
+  const handleNumberInput = (val: string, brokerId: string, isProfit: boolean) => {
+    if (val === "" || /^-?\d*\.?\d*$/.test(val)) {
+      if (isProfit) {
+        setProfits((p) => ({ ...p, [brokerId]: val }));
+      } else {
+        setAmounts((p) => ({ ...p, [brokerId]: val }));
+      }
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -145,18 +156,32 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
             </div>
 
             {loadingData ? <p className="py-4 text-center text-sm text-muted">讀取中...</p> : (
-              <div className="mb-4 max-h-60 space-y-3 overflow-y-auto">
+              <div className="mb-4 max-h-60 space-y-3 overflow-y-auto pr-1">
                 {brokers.map((broker) => (
                   <div key={broker.id} className="rounded-xl border border-border bg-gray-50/50 p-3">
                     <label className="mb-2 block text-sm font-semibold text-gray-900">{broker.name}</label>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <span className="mb-1 block text-xs text-muted">總資產 (金額)</span>
-                        <input type="number" inputMode="decimal" placeholder="資產" value={amounts[broker.id] ?? ""} onChange={(e) => setAmounts((p) => ({ ...p, [broker.id]: e.target.value }))} className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1" />
+                        <input 
+                          type="text" 
+                          inputMode="decimal" 
+                          placeholder="資產" 
+                          value={amounts[broker.id] ?? ""} 
+                          onChange={(e) => handleNumberInput(e.target.value, broker.id, false)} 
+                          className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1" 
+                        />
                       </div>
                       <div>
                         <span className="mb-1 block text-xs text-muted">累積損益 (選填)</span>
-                        <input type="number" inputMode="decimal" placeholder="損益" value={profits[broker.id] ?? ""} onChange={(e) => setProfits((p) => ({ ...p, [broker.id]: e.target.value }))} className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1" />
+                        <input 
+                          type="text" 
+                          inputMode="decimal" 
+                          placeholder="損益" 
+                          value={profits[broker.id] ?? ""} 
+                          onChange={(e) => handleNumberInput(e.target.value, broker.id, true)} 
+                          className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1" 
+                        />
                       </div>
                     </div>
                   </div>
