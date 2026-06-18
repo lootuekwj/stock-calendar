@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react"; // 引入 useState 來記錄手機點擊了哪一天
 import {
   addMonths,
   eachDayOfInterval,
@@ -18,14 +19,13 @@ import {
   formatPercent, 
   getChangeColor, 
   toDateString,
-  formatCurrency // 引入這個來格式化浮動卡片裡的金額
+  formatCurrency 
 } from "@/lib/utils";
 
 type Props = {
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
   dayDataMap: Map<string, DayData>;
-  // 新增以下三個屬性，接收來自大腦的明細資料
   snapshots: SnapshotWithBrokers[];
   brokers: Broker[];
   selectedBrokers: string[];
@@ -52,6 +52,9 @@ export default function Calendar({
   const calStart = startOfWeek(monthStart, { weekStartsOn: 0 });
   const calEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
   const days = eachDayOfInterval({ start: calStart, end: calEnd });
+
+  // 新增：紀錄目前哪一天的 Tooltip 被點擊打開了 (專為手機設計)
+  const [activeTooltipDate, setActiveTooltipDate] = useState<string | null>(null);
 
   return (
     <section className="rounded-2xl border border-border bg-surface p-3 shadow-sm sm:p-4">
@@ -93,7 +96,7 @@ export default function Calendar({
           const inMonth = isSameMonth(day, currentMonth);
           const color = data ? getChangeColor(data.changeAmount) : "neutral";
 
-          // 整理當天游標懸停要顯示的券商明細
+          // 整理當天券商明細
           const dailySnapshot = snapshots.find((s) => s.snapshot_date === dateStr);
           const dayDetails = dailySnapshot?.broker_snapshots
             ?.filter((bs) => selectedBrokers.includes(bs.broker_id))
@@ -105,11 +108,21 @@ export default function Calendar({
               };
             }) || [];
 
+          // 檢查這一天是不是正被點擊打開
+          const isTooltipActive = activeTooltipDate === dateStr;
+
           return (
             <div
               key={dateStr}
-              // 加入 group 類別，讓 Tailwind 知道這是觸發 Hover 的區塊
-              className={`group relative min-h-[4.5rem] rounded-lg border p-1 transition sm:min-h-[5.5rem] sm:p-1.5 ${
+              // 加上接聽點擊事件：點擊時切換顯示/隱藏
+              onClick={() => {
+                if (inMonth && dayDetails.length > 0) {
+                  setActiveTooltipDate(isTooltipActive ? null : dateStr);
+                } else {
+                  setActiveTooltipDate(null);
+                }
+              }}
+              className={`group relative min-h-[4.5rem] rounded-lg border p-1 transition cursor-pointer sm:min-h-[5.5rem] sm:p-1.5 ${
                 inMonth ? colorClasses[color] : "border-transparent opacity-30"
               }`}
             >
@@ -137,9 +150,14 @@ export default function Calendar({
                 </div>
               )}
 
-              {/* 隱藏的 Tooltip 浮動資訊卡 */}
+              {/* 雙模 Tooltip 資訊卡 */}
               {inMonth && dayDetails.length > 0 && (
-                <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-48 -translate-x-1/2 flex-col rounded-xl border border-gray-700 bg-gray-900 p-3 text-white opacity-0 shadow-xl transition-all group-hover:flex group-hover:opacity-100 sm:w-56">
+                <div 
+                  className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-48 -translate-x-1/2 flex-col rounded-xl border border-gray-700 bg-gray-900 p-3 text-white shadow-xl transition-all sm:w-56 ${
+                    // 靈魂所在：如果是被點擊狀態(手機)，直接強制顯示 flex；否則維持電腦的 group-hover
+                    isTooltipActive ? "flex opacity-100" : "hidden group-hover:flex group-hover:opacity-100"
+                  }`}
+                >
                   <div className="mb-2 border-b border-gray-700 pb-1.5 text-xs text-gray-400">
                     {format(day, "yyyy年MM月dd日")} 資產明細
                   </div>
