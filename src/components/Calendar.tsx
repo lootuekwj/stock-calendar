@@ -54,27 +54,27 @@ export default function Calendar({
           const inMonth = isSameMonth(day, currentMonth);
           const color = data ? getChangeColor(data.changeAmount) : "neutral";
 
-          // 抓取當天資料
+          // 抓取當天資料與前一天資料
           const currentIndex = snapshots.findIndex((s) => s.snapshot_date === dateStr);
           const dailySnapshot = currentIndex !== -1 ? snapshots[currentIndex] : null;
-          
-          // 抓取「前一天有紀錄的資料」來計算今日個別券商漲跌
           const prevSnapshot = currentIndex > 0 ? snapshots[currentIndex - 1] : null;
 
+          // 整理浮動卡片要顯示的資料
           const dayDetails = dailySnapshot?.broker_snapshots
             ?.filter((bs) => selectedBrokers.includes(bs.broker_id))
             .map((bs) => {
               const broker = brokers.find((b) => b.id === bs.broker_id);
               const prevBs = prevSnapshot?.broker_snapshots?.find((p) => p.broker_id === bs.broker_id);
               
-              // 神奇魔法：用今天的累積損益 減去 昨天的累積損益 ＝ 該券商今天的真實漲跌
-              const dailyBrokerChange = (bs.profit || 0) - (prevBs?.profit || 0);
+              const dailyAssetChange = Number(bs.amount || 0) - Number(prevBs?.amount || 0);
+              const dailyProfitChange = Number(bs.profit || 0) - Number(prevBs?.profit || 0);
 
               return {
                 name: broker?.name || "未知券商",
                 amount: Number(bs.amount || 0),
                 profit: Number(bs.profit || 0),
-                dailyChange: dailyBrokerChange
+                dailyAssetChange,
+                dailyProfitChange
               };
             }) || [];
 
@@ -91,7 +91,6 @@ export default function Calendar({
               {data && inMonth && (
                 <div className="mt-0.5 space-y-0.5">
                   <div className="text-[10px] font-semibold leading-tight sm:text-xs">
-                    {/* 如果是損益模式，要顯示正負號 */}
                     {calcMode === "profit" && data.amount > 0 ? "+" : ""}{formatCompact(data.amount)}
                   </div>
                   {data.changeAmount !== null && (
@@ -102,36 +101,46 @@ export default function Calendar({
                 </div>
               )}
 
-              {/* 終極版 Tooltip */}
+              {/* 終極版 Tooltip：根據模式動態切換顯示內容 */}
               {inMonth && (dayDetails.length > 0 || dailySnapshot?.note) && (
-                <div className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-52 -translate-x-1/2 flex-col rounded-xl border border-gray-700 bg-gray-900 p-3 text-white shadow-xl transition-all sm:w-60 ${isTooltipActive ? "flex opacity-100" : "hidden group-hover:flex group-hover:opacity-100"}`}>
-                  <div className="mb-2 border-b border-gray-700 pb-1.5 text-xs text-gray-400">
-                    {format(day, "MM月dd日")} 明細
+                <div className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 flex-col rounded-xl border border-gray-700 bg-gray-900 p-3 text-white shadow-xl transition-all sm:w-64 ${isTooltipActive ? "flex opacity-100" : "hidden group-hover:flex group-hover:opacity-100"}`}>
+                  <div className="mb-2 flex items-center justify-between border-b border-gray-700 pb-1.5 text-xs text-gray-400">
+                    <span>{format(day, "MM月dd日")}</span>
+                    <span>{calcMode === "asset" ? "資產明細" : "損益明細"}</span>
                   </div>
                   
                   <div className="flex flex-col gap-2">
-                    {dayDetails.map((d) => (
-                      <div key={d.name} className="flex flex-col rounded bg-gray-800 p-1.5">
-                        <div className="flex justify-between text-xs text-gray-300">
-                          <span>{d.name}</span>
-                          {/* 單日漲跌（小字標示在右上角） */}
-                          <span className={`text-[10px] ${d.dailyChange > 0 ? "text-red-400" : d.dailyChange < 0 ? "text-green-400" : "text-gray-500"}`}>
-                            今日 {d.dailyChange > 0 ? "+" : ""}{formatCurrency(d.dailyChange)}
-                          </span>
+                    {dayDetails.map((d) => {
+                      // 核心邏輯：判斷目前模式，決定顯示的主數字和變動數字
+                      const isAssetMode = calcMode === "asset";
+                      const mainValue = isAssetMode ? d.amount : d.profit;
+                      const changeValue = isAssetMode ? d.dailyAssetChange : d.dailyProfitChange;
+                      
+                      const isPositive = changeValue > 0;
+                      const isNegative = changeValue < 0;
+
+                      return (
+                        <div key={d.name} className="flex flex-col rounded bg-gray-800 p-2">
+                          <div className="mb-1 flex justify-between text-xs text-gray-300">
+                            <span className="font-medium">{d.name}</span>
+                          </div>
+                          <div className="flex items-end justify-between">
+                            <span className="text-sm font-semibold text-white">
+                              {calcMode === "profit" && mainValue > 0 ? "+" : ""}{formatCurrency(mainValue)}
+                            </span>
+                            {/* 紅色為+，綠色為- */}
+                            <span className={`text-xs ${isPositive ? "text-red-400" : isNegative ? "text-green-400" : "text-gray-500"}`}>
+                              今日 {isPositive ? "+" : ""}{formatCurrency(changeValue)}
+                            </span>
+                          </div>
                         </div>
-                        <div className="mt-1 flex justify-between text-xs font-semibold">
-                          <span>資產: {formatCompact(d.amount)}</span>
-                          <span className={`${d.profit > 0 ? "text-red-400" : d.profit < 0 ? "text-green-400" : ""}`}>
-                            累損: {d.profit > 0 ? "+" : ""}{formatCompact(d.profit)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* 備註顯示區塊 */}
                   {dailySnapshot?.note && (
-                    <div className="mt-2 border-t border-gray-700 pt-2 text-[11px] leading-relaxed text-gray-300">
+                    <div className="mt-3 border-t border-gray-700 pt-2 text-[11px] leading-relaxed text-gray-300">
                       📝 {dailySnapshot.note}
                     </div>
                   )}
