@@ -67,7 +67,6 @@ export default function Dashboard({ user }: Props) {
   }, [snapshots, selectedBrokers, calcMode]);
 
   return (
-    {/* 最外層加入 bg-gray-950 (極深灰) 和 text-gray-100 */}
     <div className="min-h-dvh bg-gray-950 text-gray-100 selection:bg-blue-500/30">
       <div className="mx-auto max-w-2xl">
         <Header user={user} onAddClick={() => setShowEntry(true)} onBrokersClick={() => setShowBrokers(true)} onSignOut={async () => { await supabase.auth.signOut(); window.location.href = "/login"; }} />
