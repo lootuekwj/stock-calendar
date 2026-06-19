@@ -251,6 +251,7 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
 
       <div className="h-64 w-full sm:h-72">
         <RechartsResponsiveContainer width="100%" height="100%">
+          {/* 請對照這一段，將原本的這區塊替換掉 */}
           <RechartsLineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
             <RechartsCartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
             <RechartsXAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={{ stroke: "#4b5563" }} minTickGap={20} />
@@ -258,10 +259,29 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
             
             <RechartsTooltip content={<CustomTooltip />} />
             
-            {/* 兩條線無論什麼模式都會顯示對照 */}
-            <RechartsLine type="monotone" dataKey="benchAmount" stroke="#6b7280" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, fill: "#6b7280", stroke: "#111827", strokeWidth: 2 }} connectNulls={true} />
+            {/* 【這就是你要找的地方】把這兩行替換成下面的判斷式 */}
+            {calcMode === "profit" && (
+              <RechartsLine 
+                type="monotone" 
+                dataKey="benchAmount" 
+                stroke="#6b7280" 
+                strokeWidth={2} 
+                strokeDasharray="5 5" 
+                dot={false} 
+                activeDot={{ r: 4, fill: "#6b7280", stroke: "#111827", strokeWidth: 2 }} 
+                connectNulls={true} 
+              />
+            )}
             
-            <RechartsLine type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={3} dot={range === '1y' || range === '6m' ? false : { r: 3, fill: "#111827", stroke: "#3b82f6", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#3b82f6", stroke: "#111827", strokeWidth: 2 }} connectNulls={true} />
+            <RechartsLine 
+              type="monotone" 
+              dataKey="amount" 
+              stroke="#3b82f6" 
+              strokeWidth={3} 
+              dot={range === '1y' || range === '6m' ? false : { r: 3, fill: "#111827", stroke: "#3b82f6", strokeWidth: 2 }} 
+              activeDot={{ r: 6, fill: "#3b82f6", stroke: "#111827", strokeWidth: 2 }} 
+              connectNulls={true} 
+            />
           </RechartsLineChart>
         </RechartsResponsiveContainer>
       </div>
