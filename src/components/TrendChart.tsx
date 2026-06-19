@@ -128,4 +128,79 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
                 <div className="text-sm font-bold text-white">{formatCurrency(data.amount)}</div>
                 {data.userPct !== null && (
                   <div className={`text-[10px] ${data.userPct > 0 ? "text-red-400" : data.userPct < 0 ? "text-green-400" : "text-gray-500"}`}>
-                    {data
+                    {data.userChange > 0 ? "+" : ""}{formatCompact(data.userChange)} ({data.userPct > 0 ? "+" : ""}{(data.userPct * 100).toFixed(2)}%)
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {calcMode === "profit" && data.benchAmount !== null && (
+            <div className="flex items-center justify-between gap-4 border-t border-gray-800/60 mt-1.5 pt-1.5">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-gray-500"></div>
+                <span className="text-sm font-semibold text-gray-400">0050 對照</span>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold text-gray-300">{formatCurrency(data.benchAmount)}</div>
+                {data.benchPct !== null && (
+                  <div className={`text-[10px] ${data.benchPct > 0 ? "text-red-400/80" : data.benchPct < 0 ? "text-green-400/80" : "text-gray-500"}`}>
+                    {data.benchChange > 0 ? "+" : ""}{formatCompact(data.benchChange)} ({data.benchPct > 0 ? "+" : ""}{(data.benchPct * 100).toFixed(2)}%)
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4 shadow-sm sm:p-5">
+      <div className="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col">
+          <h3 className="text-sm font-semibold text-gray-100">
+            {calcMode === "asset" ? "資產趨勢走勢" : "損益趨勢走勢"}
+          </h3>
+          {calcMode === "profit" && <span className="text-[10px] text-gray-500">包含 0050 虛擬本金對照線</span>}
+        </div>
+        
+        <div className="flex overflow-hidden rounded-lg border border-gray-800 bg-gray-950">
+          {rangeButtons.map((btn) => (
+            <button
+              key={btn.id}
+              onClick={() => setRange(btn.id)}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                range === btn.id
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+              }`}
+            >
+              {btn.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="h-64 w-full sm:h-72">
+        <RechartsResponsiveContainer width="100%" height="100%">
+          <RechartsLineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+            <RechartsCartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+            <RechartsXAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={{ stroke: "#4b5563" }} minTickGap={20} />
+            <RechartsYAxis tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false} tickFormatter={(v) => v >= 10000 || v <= -10000 ? `${(v / 10000).toFixed(0)}w` : String(v)} />
+            
+            <RechartsTooltip content={<CustomTooltip />} />
+            
+            {calcMode === "profit" && (
+              <RechartsLine type="monotone" dataKey="benchAmount" stroke="#6b7280" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, fill: "#6b7280", stroke: "#111827", strokeWidth: 2 }} connectNulls={true} />
+            )}
+            
+            <RechartsLine type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={3} dot={range === '1y' || range === '6m' ? false : { r: 3, fill: "#111827", stroke: "#3b82f6", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#3b82f6", stroke: "#111827", strokeWidth: 2 }} connectNulls={true} />
+          </RechartsLineChart>
+        </RechartsResponsiveContainer>
+      </div>
+    </section>
+  );
+}
