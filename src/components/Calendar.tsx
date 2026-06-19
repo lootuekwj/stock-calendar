@@ -26,6 +26,12 @@ const colorClasses = {
   neutral: "bg-gray-800/40 text-gray-400 border-gray-800",
 };
 
+const textColors = {
+  up: "text-red-400",
+  down: "text-green-400",
+  neutral: "text-gray-500",
+};
+
 export default function Calendar({
   currentMonth, onMonthChange, dayDataMap, snapshots, brokers, selectedBrokers, calcMode
 }: Props) {
@@ -64,15 +70,17 @@ export default function Calendar({
               const broker = brokers.find((b) => b.id === bs.broker_id);
               const prevBs = prevSnapshot?.broker_snapshots?.find((p) => p.broker_id === bs.broker_id);
               
-              const prevAsset = Number(prevBs?.amount || 0);
-              const prevProfit = Number(prevBs?.profit || 0);
+              // 核心修正：如果前一天沒有該券商紀錄，變動率應算作 0%，避免分母無資料造成的數值暴衝
+              const hasPrev = !!prevBs;
+              const prevAsset = hasPrev ? Number(prevBs.amount || 0) : Number(bs.amount || 0);
+              const prevProfit = hasPrev ? Number(prevBs.profit || 0) : Number(bs.profit || 0);
               
               const dailyAssetChange = Number(bs.amount || 0) - prevAsset;
               const dailyProfitChange = Number(bs.profit || 0) - prevProfit;
 
-              // 計算個別券商的 % 數
-              const dailyAssetPercent = prevAsset !== 0 ? dailyAssetChange / Math.abs(prevAsset) : 0;
-              const dailyProfitPercent = prevProfit !== 0 ? dailyProfitChange / Math.abs(prevProfit) : 0;
+              // 精準金融公式：(今日 - 前日) / |前日|，防止負數損益變動方向錯亂
+              const dailyAssetPercent = (hasPrev && prevAsset !== 0) ? (dailyAssetChange / Math.abs(prevAsset)) : 0;
+              const dailyProfitPercent = (hasPrev && prevProfit !== 0) ? (dailyProfitChange / Math.abs(prevProfit)) : 0;
 
               return {
                 name: broker?.name || "未知券商",
@@ -91,23 +99,28 @@ export default function Calendar({
             <div
               key={dateStr}
               onClick={() => setActiveTooltipDate((isTooltipActive || !inMonth || (!dayDetails.length && !dailySnapshot?.note)) ? null : dateStr)}
-              className={`group relative min-h-[4.5rem] cursor-pointer rounded-lg border px-0.5 py-1 transition sm:min-h-[5.5rem] sm:p-1.5 ${inMonth ? colorClasses[color] : "border-transparent opacity-10"}`}
+              className={`group relative min-h-[5.2rem] cursor-pointer rounded-lg border px-0.5 py-1 transition sm:min-h-[6rem] sm:p-1.5 ${inMonth ? colorClasses[color] : "border-transparent opacity-10"}`}
             >
               <div className="text-xs font-medium text-gray-300 px-0.5">{format(day, "d")}</div>
               
               {data && inMonth && (
-                <div className="mt-0.5 space-y-0.5 px-0.5">
+                <div className="mt-0.5 flex flex-col px-0.5">
+                  {/* 第一行：總額 */}
                   <div className="whitespace-nowrap text-[9px] font-semibold leading-tight tracking-tighter sm:text-xs text-gray-100">
                     {calcMode === "profit" && data.amount > 0 ? "+" : ""}{formatCompact(data.amount)}
                   </div>
-                  {/* 格子內加上 % 數顯示 */}
+                  
                   {data.changeAmount !== null && data.changePercent !== null && (
-                    <div className="whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px]">
-                      {data.changeAmount > 0 ? "+" : ""}{formatCompact(data.changeAmount)}
-                      <span className="ml-0.5 opacity-80">
+                    <>
+                      {/* 第二行：增減金額 */}
+                      <div className={`whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px] ${textColors[color]}`}>
+                        {data.changeAmount > 0 ? "+" : ""}{formatCompact(data.changeAmount)}
+                      </div>
+                      {/* 第三行：百分比 (%) */}
+                      <div className={`whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px] opacity-85 ${textColors[color]}`}>
                         ({data.changePercent > 0 ? "+" : ""}{(data.changePercent * 100).toFixed(2)}%)
-                      </span>
-                    </div>
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -138,7 +151,6 @@ export default function Calendar({
                             <span className="text-sm font-semibold text-white">
                               {calcMode === "profit" && mainValue > 0 ? "+" : ""}{formatCurrency(mainValue)}
                             </span>
-                            {/* 明細卡片內加上 % 數顯示 */}
                             <span className={`text-[10px] font-medium ${isPositive ? "text-red-400" : isNegative ? "text-green-400" : "text-gray-500"}`}>
                               {isPositive ? "+" : ""}{formatCompact(changeValue)} ({isPositive ? "+" : ""}{(percentValue * 100).toFixed(2)}%)
                             </span>
