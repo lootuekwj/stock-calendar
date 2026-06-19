@@ -42,7 +42,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
 
     const days = eachDayOfInterval({ start, end });
     
-    // 1. 尋找此區間內第一筆有記帳的日期，並【同時抽出】那天的總資產與總損益
     let baseDateStr = "";
     let baseUserAsset = 0;
     let baseUserProfit = 0;
@@ -69,7 +68,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       }
     }
 
-    // 假日大盤價向前遞補函式
     const getRealMarketPrice = (dateStr: string) => {
       let checkDate = new Date(dateStr);
       for (let i = 0; i < 7; i++) {
@@ -82,58 +80,88 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       return null;
     };
 
-    // 金融精準模型：無論在哪個模式，虛擬股數的換算底數永遠是【起點總資產】
     const base0050Price = baseDateStr ? getRealMarketPrice(baseDateStr) : null;
     const virtualShares = (base0050Price && base0050Price > 0) ? (baseUserAsset / base0050Price) : 0;
 
-    let prevUserValue: number | null = null;
+    let prevUserAsset: number | null = null;
+    let prevUserProfit: number | null = null;
+    let prev0050Price: number | null = null;
+    let prevBenchValue: number | null = null;
 
     return days.map(day => {
       const dateStr = format(day, "yyyy-MM-dd");
       const snap = snapshots.find(s => s.snapshot_date === dateStr);
       
-      // 計算當天使用者畫面上該顯示的主線數值（資產或損益）
-      let currentUserValue = null;
+      let currentAsset: number | null = null;
+      let currentProfit: number | null = null;
+
       if (snap) {
-        let total = 0;
+        let a = 0; let p = 0;
         snap.broker_snapshots?.forEach(bs => {
           if (selectedBrokers.includes(bs.broker_id)) {
-            total += Number(calcMode === "asset" ? bs.amount : bs.profit);
+            a += Number(bs.amount || 0);
+            p += Number(bs.profit || 0);
           }
         });
-        currentUserValue = total;
+        currentAsset = a;
+        currentProfit = p;
       }
 
-      // 計算主線的單日增減與 % 數
-      let userChange = null;
-      let userPct = null;
-      if (currentUserValue !== null && prevUserValue !== null && prevUserValue !== 0) {
-        userChange = currentUserValue - prevUserValue;
-        userPct = userChange / Math.abs(prevUserValue);
+      // 1. 計算真實資產的漲跌與 % 數 (永遠算資產報酬率)
+      let userAssetPct = null;
+      if (currentAsset !== null && prevUserAsset !== null && prevUserAsset !== 0) {
+        const assetChange = currentAsset - prevUserAsset;
+        userAssetPct = assetChange / Math.abs(prevUserAsset);
       }
-      if (currentUserValue !== null) prevUserValue = currentUserValue;
-
-      // 核心重構：根據模式，動態決定 0050 對照線的 Y 軸基準
-      const current0050Price = getRealMarketPrice(dateStr);
-      let currentBenchValue = null;
       
+      // 2. 計算畫面上要顯示的增減金額 (根據模式切換)
+      let userChange = null;
+      if (calcMode === "profit") {
+        if (currentProfit !== null && prevUserProfit !== null) {
+          userChange = currentProfit - prevUserProfit;
+        }
+      } else {
+        if (currentAsset !== null && prevUserAsset !== null) {
+          userChange = currentAsset - prevUserAsset;
+        }
+      }
+
+      if (currentAsset !== null) prevUserAsset = currentAsset;
+      if (currentProfit !== null) prevUserProfit = currentProfit;
+
+      // 3. 計算 0050 真實股價的漲跌 % 數
+      const current0050Price = getRealMarketPrice(dateStr);
+      let benchPricePct = null;
+      if (current0050Price !== null && prev0050Price !== null && prev0050Price !== 0) {
+        benchPricePct = (current0050Price - prev0050Price) / Math.abs(prev0050Price);
+      }
+      if (current0050Price !== null) prev0050Price = current0050Price;
+
+      // 4. 計算 0050 虛擬基準線的數值與增減金額
+      let currentBenchValue = null;
       if (baseUserAsset !== 0 && current0050Price && base0050Price) {
         if (calcMode === "asset") {
-          // 資產模式：對照線 = 虛擬股數 × 今日股價 (從總資產出發)
           currentBenchValue = virtualShares * current0050Price;
         } else {
-          // 損益模式：對照線 = 起點總損益 + (今日股價 - 起點股價) × 虛擬股數 (從累積損益出發)
           currentBenchValue = baseUserProfit + (current0050Price - base0050Price) * virtualShares;
         }
       }
 
+      let benchChange = null;
+      if (currentBenchValue !== null && prevBenchValue !== null) {
+        benchChange = currentBenchValue - prevBenchValue;
+      }
+      if (currentBenchValue !== null) prevBenchValue = currentBenchValue;
+
       return {
         date: dateStr,
         label: format(day, range === '1y' ? "MM/yy" : "M/d"),
-        amount: currentUserValue,
+        amount: calcMode === "asset" ? currentAsset : currentProfit,
         userChange,
-        userPct,
+        userAssetPct,
         benchAmount: currentBenchValue,
+        benchChange,
+        benchPricePct,
       };
     });
   }, [snapshots, selectedBrokers, currentMonth, range, calcMode, marketData]);
@@ -153,9 +181,10 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
         <div className="rounded-xl border border-gray-700 bg-gray-900/95 p-3 shadow-2xl backdrop-blur-sm">
           <p className="mb-2 border-b border-gray-800 pb-1 text-xs text-gray-400">日期：{data.date}</p>
           
+          {/* 用戶真實數據區塊 */}
           {data.amount !== null && (
-            <div className="mb-2 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-1.5">
+            <div className="mb-2 flex items-start justify-between gap-6">
+              <div className="flex items-center gap-1.5 mt-0.5">
                 <div className="h-2 w-2 rounded-full bg-blue-500"></div>
                 <span className="text-sm font-semibold text-gray-200">
                   {calcMode === "asset" ? "真實資產" : "真實損益"}
@@ -164,10 +193,10 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
               <div className="text-right">
                 <div className="text-sm font-bold text-white">{formatCurrency(data.amount)}</div>
                 {data.userChange !== null && (
-                  <div className={`text-[10px] ${data.userChange > 0 ? "text-red-400" : data.userChange < 0 ? "text-green-400" : "text-gray-500"}`}>
-                    {data.userChange > 0 ? "+" : ""}{formatCompact(data.userChange)}
-                    {calcMode === "asset" && data.userPct !== null && (
-                      <> ({data.userPct > 0 ? "+" : ""}{(data.userPct * 100).toFixed(2)}%)</>
+                  <div className={`mt-0.5 flex flex-col text-[11px] font-medium leading-tight tracking-tight ${data.userChange > 0 ? "text-red-400" : data.userChange < 0 ? "text-green-400" : "text-gray-500"}`}>
+                    <span>{data.userChange > 0 ? "+" : ""}{formatCompact(data.userChange)}</span>
+                    {data.userAssetPct !== null && (
+                      <span className="opacity-90">({data.userAssetPct > 0 ? "+" : ""}{(data.userAssetPct * 100).toFixed(2)}%)</span>
                     )}
                   </div>
                 )}
@@ -175,14 +204,23 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
             </div>
           )}
 
-          {calcMode === "profit" && data.benchAmount !== null && (
-            <div className="flex items-center justify-between gap-4 border-t border-gray-800/60 mt-1.5 pt-1.5">
-              <div className="flex items-center gap-1.5">
+          {/* 0050 對照線區塊 */}
+          {data.benchAmount !== null && (
+            <div className="flex items-start justify-between gap-6 border-t border-gray-800/60 mt-2 pt-2">
+              <div className="flex items-center gap-1.5 mt-0.5">
                 <div className="h-2 w-2 rounded-full bg-gray-500"></div>
                 <span className="text-sm font-semibold text-gray-400">0050 對照</span>
               </div>
               <div className="text-right">
                 <div className="text-sm font-bold text-gray-300">{formatCurrency(data.benchAmount)}</div>
+                {data.benchChange !== null && (
+                  <div className={`mt-0.5 flex flex-col text-[11px] font-medium leading-tight tracking-tight ${data.benchChange > 0 ? "text-red-400/90" : data.benchChange < 0 ? "text-green-400/90" : "text-gray-500"}`}>
+                    <span>{data.benchChange > 0 ? "+" : ""}{formatCompact(data.benchChange)}</span>
+                    {data.benchPricePct !== null && (
+                      <span className="opacity-90">({data.benchPricePct > 0 ? "+" : ""}{(data.benchPricePct * 100).toFixed(2)}%)</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -199,7 +237,9 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
           <h3 className="text-sm font-semibold text-gray-100">
             {calcMode === "asset" ? "資產趨勢走勢" : "損益趨勢走勢"}
           </h3>
-          {calcMode === "profit" && <span className="text-[10px] text-gray-500">包含 0050 真實損益對照線</span>}
+          <span className="text-[10px] text-gray-500">
+            {calcMode === "profit" ? "包含 0050 真實損益對照線" : "包含 0050 真實資產對照線"}
+          </span>
         </div>
         
         <div className="flex overflow-hidden rounded-lg border border-gray-800 bg-gray-950">
@@ -218,9 +258,8 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
             
             <RechartsTooltip content={<CustomTooltip />} />
             
-            {calcMode === "profit" && (
-              <RechartsLine type="monotone" dataKey="benchAmount" stroke="#6b7280" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, fill: "#6b7280", stroke: "#111827", strokeWidth: 2 }} connectNulls={true} />
-            )}
+            {/* 兩條線無論什麼模式都會顯示對照 */}
+            <RechartsLine type="monotone" dataKey="benchAmount" stroke="#6b7280" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, fill: "#6b7280", stroke: "#111827", strokeWidth: 2 }} connectNulls={true} />
             
             <RechartsLine type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={3} dot={range === '1y' || range === '6m' ? false : { r: 3, fill: "#111827", stroke: "#3b82f6", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#3b82f6", stroke: "#111827", strokeWidth: 2 }} connectNulls={true} />
           </RechartsLineChart>
