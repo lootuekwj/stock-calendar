@@ -36,8 +36,8 @@ export default function Calendar({
   const [activeTooltipDate, setActiveTooltipDate] = useState<string | null>(null);
 
   return (
-    <section className="rounded-2xl border border-gray-800 bg-gray-900 p-3 shadow-sm sm:p-4">
-      <div className="mb-4 flex items-center justify-between">
+    <section className="rounded-2xl border border-gray-800 bg-gray-900 p-2 shadow-sm sm:p-4">
+      <div className="mb-4 flex items-center justify-between px-1">
         <button onClick={() => onMonthChange(subMonths(currentMonth, 1))} className="h-9 w-9 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition-colors">‹</button>
         <h2 className="text-base font-semibold text-gray-100">{format(currentMonth, "yyyy年 M月", { locale: zhTW })}</h2>
         <button onClick={() => onMonthChange(addMonths(currentMonth, 1))} className="h-9 w-9 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition-colors">›</button>
@@ -82,18 +82,19 @@ export default function Calendar({
             <div
               key={dateStr}
               onClick={() => setActiveTooltipDate((isTooltipActive || !inMonth || (!dayDetails.length && !dailySnapshot?.note)) ? null : dateStr)}
-              className={`group relative min-h-[4.5rem] cursor-pointer rounded-lg border p-1 transition sm:min-h-[5.5rem] sm:p-1.5 ${inMonth ? colorClasses[color] : "border-transparent opacity-10"}`}
+              /* 縮小手機版的 px 內距，爭取更多顯示空間 */
+              className={`group relative min-h-[4.5rem] cursor-pointer rounded-lg border px-0.5 py-1 transition sm:min-h-[5.5rem] sm:p-1.5 ${inMonth ? colorClasses[color] : "border-transparent opacity-10"}`}
             >
-              <div className="text-xs font-medium text-gray-300">{format(day, "d")}</div>
+              <div className="text-xs font-medium text-gray-300 px-0.5">{format(day, "d")}</div>
               
               {data && inMonth && (
-                <div className="mt-0.5 space-y-0.5 overflow-hidden">
-                  {/* 加入 whitespace-nowrap, truncate 與 tracking-tight 防止換行破版 */}
-                  <div className="truncate whitespace-nowrap text-[10px] font-semibold leading-tight tracking-tight sm:text-xs">
+                <div className="mt-0.5 space-y-0.5 px-0.5">
+                  {/* 移除 truncate，改用 text-[9px] 與更緊湊的 tracking-tighter */}
+                  <div className="whitespace-nowrap text-[9px] font-semibold leading-tight tracking-tighter sm:text-xs">
                     {calcMode === "profit" && data.amount > 0 ? "+" : ""}{formatCompact(data.amount)}
                   </div>
                   {data.changeAmount !== null && (
-                    <div className="truncate whitespace-nowrap text-[9px] leading-tight tracking-tight sm:text-[10px]">
+                    <div className="whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px]">
                       {data.changeAmount > 0 ? "+" : ""}{formatCompact(data.changeAmount)}
                     </div>
                   )}
