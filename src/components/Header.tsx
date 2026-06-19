@@ -30,10 +30,25 @@ export default function Header({ user, onAddClick, onBrokersClick, onSignOut }: 
         >
           ＋ 記帳
         </button>
+        
+        {/* 新增的重整按鈕 */}
+        <button 
+          onClick={() => window.location.reload()} 
+          className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 sm:p-2" 
+          aria-label="重整畫面"
+          title="重整畫面"
+        >
+          <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+
+        {/* 原本的登出按鈕 */}
         <button 
           onClick={onSignOut} 
           className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 sm:p-2" 
           aria-label="登出"
+          title="登出"
         >
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
