@@ -16,6 +16,10 @@ export default function BrokerManager({ brokers, onClose, onChanged }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  // 新增：紀錄目前正在編輯哪個券商，以及編輯中的名稱
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+
   const handleAdd = async () => {
     if (!brokerName.trim()) return;
     setSaving(true);
@@ -47,6 +51,38 @@ export default function BrokerManager({ brokers, onClose, onChanged }: Props) {
     await supabase.from("brokers").delete().eq("id", id);
     setSaving(false);
     onChanged();
+  };
+
+  // 新增：處理修改儲存
+  const handleSaveEdit = async (id: string) => {
+    if (!editName.trim()) {
+      setEditingId(null); // 如果清空代表不想改了，直接取消編輯狀態
+      return;
+    }
+    setSaving(true);
+    setError("");
+
+    const { error: updateError } = await supabase
+      .from("brokers")
+      .update({ name: editName.trim() })
+      .eq("id", id);
+
+    if (updateError) {
+      setError("修改失敗");
+      setSaving(false);
+      return;
+    }
+
+    setEditingId(null);
+    setEditName("");
+    setSaving(false);
+    onChanged();
+  };
+
+  // 新增：啟動編輯模式
+  const startEditing = (broker: Broker) => {
+    setEditingId(broker.id);
+    setEditName(broker.name);
   };
 
   return (
@@ -83,15 +119,57 @@ export default function BrokerManager({ brokers, onClose, onChanged }: Props) {
             <p className="py-4 text-center text-sm text-gray-500">目前沒有任何券商，請在上方新增。</p>
           ) : (
             brokers.map((b) => (
-              <div key={b.id} className="flex items-center justify-between rounded-xl border border-gray-800 bg-gray-950/50 px-4 py-3">
-                <span className="font-medium text-gray-200">{b.name}</span>
-                <button
-                  onClick={() => handleDelete(b.id)}
-                  disabled={saving}
-                  className="text-xs font-medium text-red-400 transition-colors hover:text-red-300 disabled:opacity-50"
-                >
-                  刪除
-                </button>
+              <div key={b.id} className="flex min-h-[44px] items-center justify-between rounded-xl border border-gray-800 bg-gray-950/50 px-4 py-2">
+                {editingId === b.id ? (
+                  // 編輯模式：顯示輸入框與儲存/取消按鈕
+                  <div className="flex w-full items-center gap-2">
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSaveEdit(b.id)}
+                      className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-1"
+                      autoFocus // 自動聚焦
+                    />
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        onClick={() => setEditingId(null)}
+                        disabled={saving}
+                        className="text-xs font-medium text-gray-400 transition-colors hover:text-gray-200 disabled:opacity-50"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={() => handleSaveEdit(b.id)}
+                        disabled={saving || !editName.trim()}
+                        className="rounded-lg bg-blue-600/20 px-2 py-1 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-600/30 disabled:opacity-50"
+                      >
+                        儲存
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // 預設模式：顯示名稱與修改/刪除按鈕
+                  <>
+                    <span className="font-medium text-gray-200">{b.name}</span>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => startEditing(b)}
+                        disabled={saving}
+                        className="text-xs font-medium text-gray-400 transition-colors hover:text-blue-400 disabled:opacity-50"
+                      >
+                        修改
+                      </button>
+                      <button
+                        onClick={() => handleDelete(b.id)}
+                        disabled={saving}
+                        className="text-xs font-medium text-red-400 transition-colors hover:text-red-300 disabled:opacity-50"
+                      >
+                        刪除
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))
           )}
