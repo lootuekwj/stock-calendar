@@ -22,6 +22,9 @@ export default function Dashboard({ user }: Props) {
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
   const [calcMode, setCalcMode] = useState<CalcMode>("asset"); 
   
+  // 新增：存放從資料庫抓回來的真實大盤資料
+  const [marketData, setMarketData] = useState<Map<string, number>>(new Map());
+  
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [showEntry, setShowEntry] = useState(false);
   const [showBrokers, setShowBrokers] = useState(false);
@@ -29,16 +32,28 @@ export default function Dashboard({ user }: Props) {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [brokersRes, snapshotsRes] = await Promise.all([
+    // 核心升級：同時並行抓取券商、記帳紀錄、與 market_snapshots 大盤資料
+    const [brokersRes, snapshotsRes, marketRes] = await Promise.all([
       supabase.from("brokers").select("*").order("sort_order", { ascending: true }),
       supabase.from("daily_snapshots").select("*, broker_snapshots(*)").order("snapshot_date", { ascending: true }),
+      supabase.from("market_snapshots").select("snapshot_date, price").eq("symbol", "0050.TW").order("snapshot_date", { ascending: true }),
     ]);
 
     if (brokersRes.data) {
       setBrokers(brokersRes.data);
       setSelectedBrokers((prev) => prev.length === 0 ? brokersRes.data.map(b => b.id) : prev);
     }
-    if (snapshotsRes.data) setSnapshots(snapshotsRes.data as SnapshotWithBrokers[]);
+    if (snapshotsRes.data) {
+      setSnapshots(snapshotsRes.data as SnapshotWithBrokers[]);
+    }
+    // 將大盤資料轉換成 Map 以便圖表快速查詢 (Key: 日期字串, Value: 收盤價)
+    if (marketRes.data) {
+      const mData = new Map<string, number>();
+      marketRes.data.forEach(item => {
+        mData.set(item.snapshot_date, Number(item.price));
+      });
+      setMarketData(mData);
+    }
     setLoading(false);
   }, [supabase]);
 
@@ -74,7 +89,6 @@ export default function Dashboard({ user }: Props) {
         <main className="space-y-4 px-4 pb-8 pt-4">
           <ViewSelector brokers={brokers} selectedBrokers={selectedBrokers} onChange={setSelectedBrokers} />
 
-          {/* 深色科技感：雙軌切換開關 */}
           <div className="flex w-full rounded-xl border border-gray-800 bg-gray-900 p-1">
             <button 
               onClick={() => setCalcMode("asset")} 
@@ -98,7 +112,10 @@ export default function Dashboard({ user }: Props) {
                 currentMonth={currentMonth} onMonthChange={setCurrentMonth} dayDataMap={dayDataMap} 
                 snapshots={snapshots} brokers={brokers} selectedBrokers={selectedBrokers} calcMode={calcMode}
               />
-              <TrendChart dayDataMap={dayDataMap} currentMonth={currentMonth} calcMode={calcMode} />
+              {/* 核心升級：將真實大盤資料 (marketData) 傳遞給圖表 */}
+              <TrendChart 
+                dayDataMap={dayDataMap} currentMonth={currentMonth} calcMode={calcMode} marketData={marketData} 
+              />
             </>
           )}
         </main>

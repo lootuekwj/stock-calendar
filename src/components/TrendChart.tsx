@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { LineChart as RechartsLineChart, Line as RechartsLine, XAxis as RechartsXAxis, YAxis as RechartsYAxis, CartesianGrid as RechartsCartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer as RechartsResponsiveContainer } from "recharts";
 import { 
-  format, eachDayOfInterval, startOfMonth, endOfMonth, subMonths, subYears 
+  format, eachDayOfInterval, startOfMonth, endOfMonth, subMonths, subYears, subDays 
 } from "date-fns";
 import type { DayData } from "@/types";
 import { formatCurrency, formatCompact } from "@/lib/utils";
@@ -11,18 +11,14 @@ import { formatCurrency, formatCompact } from "@/lib/utils";
 type Props = {
   dayDataMap: Map<string, DayData>;
   currentMonth: Date;
-  calcMode: "asset" | "profit"; 
+  calcMode: "asset" | "profit";
+  // 新增接收屬性：真實大盤資料 Map
+  marketData: Map<string, number>;
 };
 
 type TimeRange = 'calendar' | '1m' | '3m' | '6m' | '1y';
 
-function getMock0050Price(dateStr: string) {
-  const date = new Date(dateStr);
-  const timeOffset = Math.floor(date.getTime() / 86400000);
-  return 180 + (timeOffset - 19800) * 0.05 + Math.sin(timeOffset * 0.2) * 5;
-}
-
-export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props) {
+export default function TrendChart({ dayDataMap, currentMonth, calcMode, marketData }: Props) {
   const [range, setRange] = useState<TimeRange>('calendar');
 
   const chartData = useMemo(() => {
@@ -46,6 +42,7 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
 
     const days = eachDayOfInterval({ start, end });
     
+    // 尋找真實記帳的第一天，作為平行時空的起跑點
     let baseDateStr = "";
     let baseUserAmount = 0;
     for (const day of days) {
@@ -58,8 +55,23 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
       }
     }
 
-    const base0050Price = baseDateStr ? getMock0050Price(baseDateStr) : 1;
-    const virtualShares = baseUserAmount / base0050Price;
+    // 核心邏輯：如果當天沒有大盤資料(例如假日)，往前尋找最近的收盤價
+    const getRealMarketPrice = (dateStr: string) => {
+      let checkDate = new Date(dateStr);
+      // 最多往前找 7 天，避免無窮迴圈
+      for (let i = 0; i < 7; i++) {
+        const checkStr = format(checkDate, "yyyy-MM-dd");
+        if (marketData.has(checkStr)) {
+          return marketData.get(checkStr) as number;
+        }
+        checkDate = subDays(checkDate, 1);
+      }
+      return null;
+    };
+
+    // 計算虛擬起點的 0050 價格與可買入單位
+    const base0050Price = baseDateStr ? getRealMarketPrice(baseDateStr) : null;
+    const virtualShares = (base0050Price && base0050Price > 0) ? (baseUserAmount / base0050Price) : 0;
 
     let prevUserAmount: number | null = null;
     let prevBenchAmount: number | null = null;
@@ -77,14 +89,15 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
       }
       if (userAmount !== null) prevUserAmount = userAmount;
 
-      const current0050Price = getMock0050Price(dateStr);
-      const benchAmount = baseUserAmount !== 0 ? (virtualShares * current0050Price) : null;
+      // 取得當日的真實大盤價
+      const current0050Price = getRealMarketPrice(dateStr);
+      const benchAmount = (baseUserAmount !== 0 && current0050Price) 
+        ? (virtualShares * current0050Price) 
+        : null;
 
       let benchChange = null;
-      let benchPct = null;
       if (benchAmount !== null && prevBenchAmount !== null && prevBenchAmount !== 0) {
         benchChange = benchAmount - prevBenchAmount;
-        benchPct = benchChange / Math.abs(prevBenchAmount);
       }
       if (benchAmount !== null) prevBenchAmount = benchAmount;
       
@@ -96,10 +109,9 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
         userPct,
         benchAmount,
         benchChange,
-        benchPct
       };
     });
-  }, [dayDataMap, currentMonth, range]);
+  }, [dayDataMap, currentMonth, range, marketData]);
 
   const rangeButtons: { id: TimeRange; label: string }[] = [
     { id: 'calendar', label: '本月' },
@@ -129,7 +141,6 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
                 {data.userChange !== null && (
                   <div className={`text-[10px] ${data.userChange > 0 ? "text-red-400" : data.userChange < 0 ? "text-green-400" : "text-gray-500"}`}>
                     {data.userChange > 0 ? "+" : ""}{formatCompact(data.userChange)}
-                    {/* 完全修正：改用原生 JSX 標籤包覆 */}
                     {calcMode === "asset" && data.userPct !== null && (
                       <> ({data.userPct > 0 ? "+" : ""}{(data.userPct * 100).toFixed(2)}%)</>
                     )}
@@ -168,7 +179,7 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
           <h3 className="text-sm font-semibold text-gray-100">
             {calcMode === "asset" ? "資產趨勢走勢" : "損益趨勢走勢"}
           </h3>
-          {calcMode === "profit" && <span className="text-[10px] text-gray-500">包含 0050 虛擬本金對照線</span>}
+          {calcMode === "profit" && <span className="text-[10px] text-gray-500">包含 0050 真實本金對照線</span>}
         </div>
         
         <div className="flex overflow-hidden rounded-lg border border-gray-800 bg-gray-950">
