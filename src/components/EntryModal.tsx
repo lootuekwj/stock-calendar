@@ -127,7 +127,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
     onSaved();
   };
 
-  // 阻擋非數字輸入的輔助函式 (允許小數點和負號)
   const handleNumberInput = (val: string, brokerId: string, isProfit: boolean) => {
     if (val === "" || /^-?\d*\.?\d*$/.test(val)) {
       if (isProfit) {
@@ -140,47 +139,53 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-t-2xl border border-border bg-surface p-5 shadow-xl sm:mx-4 sm:rounded-2xl">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md rounded-t-2xl border border-gray-800 bg-gray-900 p-5 shadow-2xl sm:mx-4 sm:rounded-2xl text-gray-100">
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">{existingId ? "修改今日資料" : "記錄今日資料"}</h2>
-          <button onClick={onClose} className="text-muted hover:bg-gray-100 h-8 w-8 rounded-lg">✕</button>
+          <h2 className="text-lg font-semibold text-gray-100">{existingId ? "修改今日資料" : "記錄今日資料"}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:bg-gray-800 h-8 w-8 rounded-lg transition-colors">✕</button>
         </div>
 
         {brokers.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted">尚未設定券商</p>
+          <p className="py-6 text-center text-sm text-gray-500">尚未設定券商</p>
         ) : (
           <>
             <div className="mb-4">
-              <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-border px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              <input 
+                type="date" 
+                value={date} 
+                max={today} 
+                onChange={(e) => setDate(e.target.value)} 
+                className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" 
+              />
             </div>
 
-            {loadingData ? <p className="py-4 text-center text-sm text-muted">讀取中...</p> : (
+            {loadingData ? <p className="py-4 text-center text-sm text-gray-500">讀取中...</p> : (
               <div className="mb-4 max-h-60 space-y-3 overflow-y-auto pr-1">
                 {brokers.map((broker) => (
-                  <div key={broker.id} className="rounded-xl border border-border bg-gray-50/50 p-3">
-                    <label className="mb-2 block text-sm font-semibold text-gray-900">{broker.name}</label>
+                  <div key={broker.id} className="rounded-xl border border-gray-800 bg-gray-950/50 p-3">
+                    <label className="mb-2 block text-sm font-semibold text-gray-200">{broker.name}</label>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <span className="mb-1 block text-xs text-muted">總資產 (金額)</span>
+                        <span className="mb-1 block text-xs text-gray-500">總資產 (金額)</span>
                         <input 
                           type="text" 
                           inputMode="decimal" 
                           placeholder="資產" 
                           value={amounts[broker.id] ?? ""} 
                           onChange={(e) => handleNumberInput(e.target.value, broker.id, false)} 
-                          className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1" 
+                          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-1" 
                         />
                       </div>
                       <div>
-                        <span className="mb-1 block text-xs text-muted">累積損益 (選填)</span>
+                        <span className="mb-1 block text-xs text-gray-500">累積損益 (選填)</span>
                         <input 
                           type="text" 
                           inputMode="decimal" 
                           placeholder="損益" 
                           value={profits[broker.id] ?? ""} 
                           onChange={(e) => handleNumberInput(e.target.value, broker.id, true)} 
-                          className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1" 
+                          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-1" 
                         />
                       </div>
                     </div>
@@ -190,28 +195,36 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
             )}
 
             <div className="mb-4">
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">交易筆記 / 備註</label>
-              <textarea placeholder="今天大盤大跌，加碼買進..." value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="w-full resize-none rounded-xl border border-border px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+              <label className="mb-1.5 block text-sm font-medium text-gray-400">交易筆記 / 備註</label>
+              <textarea 
+                placeholder="今天大盤大跌，加碼買進..." 
+                value={note} 
+                onChange={(e) => setNote(e.target.value)} 
+                rows={2} 
+                className="w-full resize-none rounded-xl border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" 
+              />
             </div>
 
-            <div className="mb-4 flex gap-2 rounded-xl bg-gray-50 px-4 py-3">
+            <div className="mb-4 flex gap-2 rounded-xl border border-gray-800 bg-gray-950 px-4 py-3">
               <div className="flex-1">
-                <span className="block text-xs text-muted">合計總資產</span>
-                <span className="text-sm font-bold text-gray-900">{formatCurrency(totalAmount)}</span>
+                <span className="block text-xs text-gray-500">合計總資產</span>
+                <span className="text-sm font-bold text-gray-100">{formatCurrency(totalAmount)}</span>
               </div>
-              <div className="flex-1 border-l border-border pl-4">
-                <span className="block text-xs text-muted">合計未實現損益</span>
-                <span className={`text-sm font-bold ${totalProfit > 0 ? "text-red-500" : totalProfit < 0 ? "text-green-500" : "text-gray-900"}`}>{totalProfit > 0 ? "+" : ""}{formatCurrency(totalProfit)}</span>
+              <div className="flex-1 border-l border-gray-800 pl-4">
+                <span className="block text-xs text-gray-500">合計未實現損益</span>
+                <span className={`text-sm font-bold ${totalProfit > 0 ? "text-red-400" : totalProfit < 0 ? "text-green-400" : "text-gray-100"}`}>
+                  {totalProfit > 0 ? "+" : ""}{formatCurrency(totalProfit)}
+                </span>
               </div>
             </div>
           </>
         )}
 
-        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+        {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
         <div className="flex gap-2">
-          {existingId && <button onClick={handleDelete} disabled={saving} className="flex-1 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-100">刪除</button>}
-          {!existingId && <button onClick={onClose} className="flex-1 rounded-xl border px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50">取消</button>}
-          <button onClick={handleSave} disabled={saving || brokers.length === 0 || loadingData} className="flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50">
+          {existingId && <button onClick={handleDelete} disabled={saving} className="flex-1 rounded-xl bg-red-950/50 px-4 py-3 text-sm font-medium text-red-400 hover:bg-red-900/50 border border-red-900/50 transition-colors">刪除</button>}
+          {!existingId && <button onClick={onClose} className="flex-1 rounded-xl border border-gray-700 bg-transparent px-4 py-3 text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors">取消</button>}
+          <button onClick={handleSave} disabled={saving || brokers.length === 0 || loadingData} className="flex-1 rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors">
             {saving ? "處理中..." : (existingId ? "儲存修改" : "新增紀錄")}
           </button>
         </div>
