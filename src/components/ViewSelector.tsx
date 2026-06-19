@@ -15,7 +15,8 @@ export default function ViewSelector({ brokers, selectedBrokers, onChange }: Pro
 
   const toggleAll = () => {
     if (isAllSelected) {
-      onChange([brokers[0].id]); // 如果全選，預設退回只選第一個
+      // 改回：點第二次時取消全部選取
+      onChange([]); 
     } else {
       onChange(brokers.map((b) => b.id)); // 否則全部選取
     }

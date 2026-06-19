@@ -20,7 +20,6 @@ type Props = {
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
-// 深色模式專用漲跌顏色 (暗色背景 + 亮色文字)
 const colorClasses = {
   up: "bg-red-950/40 text-red-400 border-red-900/50",
   down: "bg-green-950/40 text-green-400 border-green-900/50",
@@ -88,12 +87,13 @@ export default function Calendar({
               <div className="text-xs font-medium text-gray-300">{format(day, "d")}</div>
               
               {data && inMonth && (
-                <div className="mt-0.5 space-y-0.5">
-                  <div className="text-[10px] font-semibold leading-tight sm:text-xs">
+                <div className="mt-0.5 space-y-0.5 overflow-hidden">
+                  {/* 加入 whitespace-nowrap, truncate 與 tracking-tight 防止換行破版 */}
+                  <div className="truncate whitespace-nowrap text-[10px] font-semibold leading-tight tracking-tight sm:text-xs">
                     {calcMode === "profit" && data.amount > 0 ? "+" : ""}{formatCompact(data.amount)}
                   </div>
                   {data.changeAmount !== null && (
-                    <div className="text-[9px] leading-tight sm:text-[10px]">
+                    <div className="truncate whitespace-nowrap text-[9px] leading-tight tracking-tight sm:text-[10px]">
                       {data.changeAmount > 0 ? "+" : ""}{formatCompact(data.changeAmount)}
                     </div>
                   )}
