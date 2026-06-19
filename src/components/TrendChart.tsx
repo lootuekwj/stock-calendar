@@ -5,20 +5,20 @@ import { LineChart as RechartsLineChart, Line as RechartsLine, XAxis as Recharts
 import { 
   format, eachDayOfInterval, startOfMonth, endOfMonth, subMonths, subYears, subDays 
 } from "date-fns";
-import type { DayData } from "@/types";
+import type { SnapshotWithBrokers } from "@/types";
 import { formatCurrency, formatCompact } from "@/lib/utils";
 
 type Props = {
-  dayDataMap: Map<string, DayData>;
+  snapshots: SnapshotWithBrokers[];
+  selectedBrokers: string[];
   currentMonth: Date;
   calcMode: "asset" | "profit";
-  // 新增接收屬性：真實大盤資料 Map
   marketData: Map<string, number>;
 };
 
 type TimeRange = 'calendar' | '1m' | '3m' | '6m' | '1y';
 
-export default function TrendChart({ dayDataMap, currentMonth, calcMode, marketData }: Props) {
+export default function TrendChart({ snapshots, selectedBrokers, currentMonth, calcMode, marketData }: Props) {
   const [range, setRange] = useState<TimeRange>('calendar');
 
   const chartData = useMemo(() => {
@@ -42,23 +42,36 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode, marketD
 
     const days = eachDayOfInterval({ start, end });
     
-    // 尋找真實記帳的第一天，作為平行時空的起跑點
+    // 1. 尋找此區間內第一筆有記帳的日期，並【同時抽出】那天的總資產與總損益
     let baseDateStr = "";
-    let baseUserAmount = 0;
+    let baseUserAsset = 0;
+    let baseUserProfit = 0;
+    
     for (const day of days) {
       const dStr = format(day, "yyyy-MM-dd");
-      const dData = dayDataMap.get(dStr);
-      if (dData && dData.amount !== null && dData.amount !== 0) {
-        baseDateStr = dStr;
-        baseUserAmount = dData.amount;
-        break;
+      const snap = snapshots.find(s => s.snapshot_date === dStr);
+      if (snap && snap.broker_snapshots && snap.broker_snapshots.length > 0) {
+        let totalAsset = 0;
+        let totalProfit = 0;
+        snap.broker_snapshots.forEach(bs => {
+          if (selectedBrokers.includes(bs.broker_id)) {
+            totalAsset += Number(bs.amount || 0);
+            totalProfit += Number(bs.profit || 0);
+          }
+        });
+        
+        if (totalAsset !== 0) {
+          baseDateStr = dStr;
+          baseUserAsset = totalAsset;
+          baseUserProfit = totalProfit;
+          break;
+        }
       }
     }
 
-    // 核心邏輯：如果當天沒有大盤資料(例如假日)，往前尋找最近的收盤價
+    // 假日大盤價向前遞補函式
     const getRealMarketPrice = (dateStr: string) => {
       let checkDate = new Date(dateStr);
-      // 最多往前找 7 天，避免無窮迴圈
       for (let i = 0; i < 7; i++) {
         const checkStr = format(checkDate, "yyyy-MM-dd");
         if (marketData.has(checkStr)) {
@@ -69,49 +82,61 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode, marketD
       return null;
     };
 
-    // 計算虛擬起點的 0050 價格與可買入單位
+    // 金融精準模型：無論在哪個模式，虛擬股數的換算底數永遠是【起點總資產】
     const base0050Price = baseDateStr ? getRealMarketPrice(baseDateStr) : null;
-    const virtualShares = (base0050Price && base0050Price > 0) ? (baseUserAmount / base0050Price) : 0;
+    const virtualShares = (base0050Price && base0050Price > 0) ? (baseUserAsset / base0050Price) : 0;
 
-    let prevUserAmount: number | null = null;
-    let prevBenchAmount: number | null = null;
+    let prevUserValue: number | null = null;
 
     return days.map(day => {
       const dateStr = format(day, "yyyy-MM-dd");
-      const existingData = dayDataMap.get(dateStr);
-      const userAmount = existingData ? existingData.amount : null;
+      const snap = snapshots.find(s => s.snapshot_date === dateStr);
+      
+      // 計算當天使用者畫面上該顯示的主線數值（資產或損益）
+      let currentUserValue = null;
+      if (snap) {
+        let total = 0;
+        snap.broker_snapshots?.forEach(bs => {
+          if (selectedBrokers.includes(bs.broker_id)) {
+            total += Number(calcMode === "asset" ? bs.amount : bs.profit);
+          }
+        });
+        currentUserValue = total;
+      }
 
+      // 計算主線的單日增減與 % 數
       let userChange = null;
       let userPct = null;
-      if (userAmount !== null && prevUserAmount !== null && prevUserAmount !== 0) {
-        userChange = userAmount - prevUserAmount;
-        userPct = userChange / Math.abs(prevUserAmount);
+      if (currentUserValue !== null && prevUserValue !== null && prevUserValue !== 0) {
+        userChange = currentUserValue - prevUserValue;
+        userPct = userChange / Math.abs(prevUserValue);
       }
-      if (userAmount !== null) prevUserAmount = userAmount;
+      if (currentUserValue !== null) prevUserValue = currentUserValue;
 
-      // 取得當日的真實大盤價
+      // 核心重構：根據模式，動態決定 0050 對照線的 Y 軸基準
       const current0050Price = getRealMarketPrice(dateStr);
-      const benchAmount = (baseUserAmount !== 0 && current0050Price) 
-        ? (virtualShares * current0050Price) 
-        : null;
-
-      let benchChange = null;
-      if (benchAmount !== null && prevBenchAmount !== null && prevBenchAmount !== 0) {
-        benchChange = benchAmount - prevBenchAmount;
-      }
-      if (benchAmount !== null) prevBenchAmount = benchAmount;
+      let currentBenchValue = null;
       
+      if (baseUserAsset !== 0 && current0050Price && base0050Price) {
+        if (calcMode === "asset") {
+          // 資產模式：對照線 = 虛擬股數 × 今日股價 (從總資產出發)
+          currentBenchValue = virtualShares * current0050Price;
+        } else {
+          // 損益模式：對照線 = 起點總損益 + (今日股價 - 起點股價) × 虛擬股數 (從累積損益出發)
+          currentBenchValue = baseUserProfit + (current0050Price - base0050Price) * virtualShares;
+        }
+      }
+
       return {
         date: dateStr,
         label: format(day, range === '1y' ? "MM/yy" : "M/d"),
-        amount: userAmount,
+        amount: currentUserValue,
         userChange,
         userPct,
-        benchAmount,
-        benchChange,
+        benchAmount: currentBenchValue,
       };
     });
-  }, [dayDataMap, currentMonth, range, marketData]);
+  }, [snapshots, selectedBrokers, currentMonth, range, calcMode, marketData]);
 
   const rangeButtons: { id: TimeRange; label: string }[] = [
     { id: 'calendar', label: '本月' },
@@ -158,11 +183,6 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode, marketD
               </div>
               <div className="text-right">
                 <div className="text-sm font-bold text-gray-300">{formatCurrency(data.benchAmount)}</div>
-                {data.benchChange !== null && (
-                  <div className={`text-[10px] ${data.benchChange > 0 ? "text-red-400/80" : data.benchChange < 0 ? "text-green-400/80" : "text-gray-500"}`}>
-                    {data.benchChange > 0 ? "+" : ""}{formatCompact(data.benchChange)}
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -179,22 +199,12 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode, marketD
           <h3 className="text-sm font-semibold text-gray-100">
             {calcMode === "asset" ? "資產趨勢走勢" : "損益趨勢走勢"}
           </h3>
-          {calcMode === "profit" && <span className="text-[10px] text-gray-500">包含 0050 真實本金對照線</span>}
+          {calcMode === "profit" && <span className="text-[10px] text-gray-500">包含 0050 真實損益對照線</span>}
         </div>
         
         <div className="flex overflow-hidden rounded-lg border border-gray-800 bg-gray-950">
           {rangeButtons.map((btn) => (
-            <button
-              key={btn.id}
-              onClick={() => setRange(btn.id)}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                range === btn.id
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
-              }`}
-            >
-              {btn.label}
-            </button>
+            <button key={btn.id} onClick={() => setRange(btn.id)} className={`px-3 py-1.5 text-xs font-medium transition-colors ${range === btn.id ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-800 hover:text-gray-300"}`}>{btn.label}</button>
           ))}
         </div>
       </div>
