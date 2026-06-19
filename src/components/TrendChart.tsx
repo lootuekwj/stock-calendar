@@ -126,9 +126,11 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
               </div>
               <div className="text-right">
                 <div className="text-sm font-bold text-white">{formatCurrency(data.amount)}</div>
-                {data.userPct !== null && (
-                  <div className={`text-[10px] ${data.userPct > 0 ? "text-red-400" : data.userPct < 0 ? "text-green-400" : "text-gray-500"}`}>
-                    {data.userChange > 0 ? "+" : ""}{formatCompact(data.userChange)} ({data.userPct > 0 ? "+" : ""}{(data.userPct * 100).toFixed(2)}%)
+                {data.userChange !== null && (
+                  <div className={`text-[10px] ${data.userChange > 0 ? "text-red-400" : data.userChange < 0 ? "text-green-400" : "text-gray-500"}`}>
+                    {data.userChange > 0 ? "+" : ""}{formatCompact(data.userChange)}
+                    {/* 核心修正：圖表浮動框的 % 數也限制在資產模式才顯示 */}
+                    {calcMode === "asset" && data.userPct !== null && ` (${data.userPct > 0 ? "+" : ""}{(data.userPct * 100).toFixed(2)}%)`}
                   </div>
                 )}
               </div>
@@ -143,9 +145,10 @@ export default function TrendChart({ dayDataMap, currentMonth, calcMode }: Props
               </div>
               <div className="text-right">
                 <div className="text-sm font-bold text-gray-300">{formatCurrency(data.benchAmount)}</div>
-                {data.benchPct !== null && (
-                  <div className={`text-[10px] ${data.benchPct > 0 ? "text-red-400/80" : data.benchPct < 0 ? "text-green-400/80" : "text-gray-500"}`}>
-                    {data.benchChange > 0 ? "+" : ""}{formatCompact(data.benchChange)} ({data.benchPct > 0 ? "+" : ""}{(data.benchPct * 100).toFixed(2)}%)
+                {data.benchChange !== null && (
+                  <div className={`text-[10px] ${data.benchChange > 0 ? "text-red-400/80" : data.benchChange < 0 ? "text-green-400/80" : "text-gray-500"}`}>
+                    {data.benchChange > 0 ? "+" : ""}{formatCompact(data.benchChange)}
+                    {/* 損益模式不顯示百分比，保留純絕對金額對比 */}
                   </div>
                 )}
               </div>
