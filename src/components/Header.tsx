@@ -9,63 +9,36 @@ type Props = {
   onSignOut: () => void;
 };
 
-export default function Header({
-  user,
-  onAddClick,
-  onBrokersClick,
-  onSignOut,
-}: Props) {
-  const avatar = user.user_metadata?.avatar_url;
-  const name =
-    user.user_metadata?.full_name ??
-    user.user_metadata?.user_name ??
-    "使用者";
-
+export default function Header({ user, onAddClick, onBrokersClick, onSignOut }: Props) {
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-surface/80 backdrop-blur-md">
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          {avatar ? (
-            <img
-              src={avatar}
-              alt=""
-              className="h-8 w-8 shrink-0 rounded-full"
-            />
-          ) : (
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm">
-              📈
-            </div>
-          )}
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900">
-              資產行事曆
-            </p>
-            <p className="truncate text-xs text-muted">{name}</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={onBrokersClick}
-            className="rounded-lg px-2.5 py-2 text-xs font-medium text-muted transition hover:bg-gray-100 hover:text-gray-900"
-            title="管理券商"
-          >
-            券商
-          </button>
-          <button
-            onClick={onSignOut}
-            className="rounded-lg px-2.5 py-2 text-xs font-medium text-muted transition hover:bg-gray-100 hover:text-gray-900"
-          >
-            登出
-          </button>
-          <button
-            onClick={onAddClick}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-xl font-light text-white shadow-md transition hover:bg-primary-hover active:scale-95"
-            aria-label="新增今日資產"
-          >
-            +
-          </button>
-        </div>
+    <header className="sticky top-0 z-40 flex items-center justify-between border-b border-gray-800 bg-gray-950/80 px-4 py-3 backdrop-blur-md sm:px-6">
+      <div className="flex flex-col">
+        <h1 className="text-lg font-bold tracking-wide text-gray-100 sm:text-xl">投資日誌</h1>
+        <span className="text-[10px] text-gray-500 sm:text-xs">{user.email}</span>
+      </div>
+      
+      <div className="flex items-center gap-2 sm:gap-3">
+        <button 
+          onClick={onBrokersClick} 
+          className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-800 hover:text-white sm:px-4 sm:py-2"
+        >
+          管理券商
+        </button>
+        <button 
+          onClick={onAddClick} 
+          className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-lg shadow-blue-900/20 transition-colors hover:bg-blue-500 sm:px-4 sm:py-2"
+        >
+          ＋ 記帳
+        </button>
+        <button 
+          onClick={onSignOut} 
+          className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300 sm:p-2" 
+          aria-label="登出"
+        >
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          </svg>
+        </button>
       </div>
     </header>
   );
