@@ -112,7 +112,6 @@ export default function Calendar({
                       <div className={`whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px] ${textColors[color]}`}>
                         {data.changeAmount > 0 ? "+" : ""}{formatCompact(data.changeAmount)}
                       </div>
-                      {/* 核心修正：只有資產模式才顯示第三行的 % 數 */}
                       {calcMode === "asset" && data.changePercent !== null && (
                         <div className={`whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px] opacity-85 ${textColors[color]}`}>
                           ({data.changePercent > 0 ? "+" : ""}{(data.changePercent * 100).toFixed(2)}%)
@@ -149,10 +148,12 @@ export default function Calendar({
                             <span className="text-sm font-semibold text-white">
                               {calcMode === "profit" && mainValue > 0 ? "+" : ""}{formatCurrency(mainValue)}
                             </span>
-                            {/* 核心修正：明細浮水印內的 % 數也限制在資產模式才顯示 */}
                             <span className={`text-[10px] font-medium ${isPositive ? "text-red-400" : isNegative ? "text-green-400" : "text-gray-500"}`}>
                               {isPositive ? "+" : ""}{formatCompact(changeValue)}
-                              {calcMode === "asset" && ` (${isPositive ? "+" : ""}{(percentValue * 100).toFixed(2)}%)`}
+                              {/* 完全修正：改用原生 JSX 標籤包覆，避免漏掉 $ 導致顯示原始碼 */}
+                              {calcMode === "asset" && (
+                                <> ({isPositive ? "+" : ""}{(percentValue * 100).toFixed(2)}%)</>
+                              )}
                             </span>
                           </div>
                         </div>
