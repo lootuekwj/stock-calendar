@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { formatCurrency, toDateString } from "@/lib/utils";
+import { format } from "date-fns";
 import type { Broker } from "@/types";
+import { formatCurrency } from "@/lib/utils";
 
 type Props = {
   brokers: Broker[];
@@ -13,221 +14,224 @@ type Props = {
 
 export default function EntryModal({ brokers, onClose, onSaved }: Props) {
   const supabase = createClient();
-  const today = toDateString(new Date());
-  
-  const [date, setDate] = useState(today);
-  const [amounts, setAmounts] = useState<Record<string, string>>({});
-  const [profits, setProfits] = useState<Record<string, string>>({});
+  const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [entries, setEntries] = useState<Record<string, { amount: string; profit: string }>>({});
   const [note, setNote] = useState("");
   
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [existingId, setExistingId] = useState<string | null>(null);
-  const [loadingData, setLoadingData] = useState(false);
+  // UX 優化：控制備註欄位是否展開的狀態
+  const [showNoteInput, setShowNoteInput] = useState(false);
+  const [loading, setLoading] = useState(false);
 
+  // 當日期改變時，自動去資料庫撈取當天是否已經有紀錄
   useEffect(() => {
-    const fetchExistingData = async () => {
-      setLoadingData(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: snapshot } = await supabase
+    const fetchExisting = async () => {
+      const { data, error } = await supabase
         .from("daily_snapshots")
-        .select("id, note")
-        .eq("user_id", user.id)
+        .select("*, broker_snapshots(*)")
         .eq("snapshot_date", date)
-        .single();
+        .maybeSingle();
 
-      if (snapshot) {
-        setExistingId(snapshot.id);
-        setNote(snapshot.note || "");
-        const { data: brokerRows } = await supabase
-          .from("broker_snapshots")
-          .select("broker_id, amount, profit")
-          .eq("daily_snapshot_id", snapshot.id);
-
-        const fetchedAmounts: Record<string, string> = {};
-        const fetchedProfits: Record<string, string> = {};
-        brokers.forEach((b) => {
-          fetchedAmounts[b.id] = "";
-          fetchedProfits[b.id] = "";
-        });
-
-        if (brokerRows) {
-          brokerRows.forEach((row) => {
-            fetchedAmounts[row.broker_id] = row.amount.toString();
-            fetchedProfits[row.broker_id] = row.profit ? row.profit.toString() : "0";
-          });
+      if (data) {
+        setNote(data.note || "");
+        // 貼心設計：如果資料庫裡原本就有寫備註，就自動幫使用者展開
+        if (data.note) {
+          setShowNoteInput(true);
+        } else {
+          setShowNoteInput(false);
         }
-        setAmounts(fetchedAmounts);
-        setProfits(fetchedProfits);
-      } else {
-        setExistingId(null);
-        setNote("");
-        const initAmounts: Record<string, string> = {};
-        const initProfits: Record<string, string> = {};
-        brokers.forEach((b) => {
-          initAmounts[b.id] = "";
-          initProfits[b.id] = "";
+        
+        const newEntries: Record<string, { amount: string; profit: string }> = {};
+        data.broker_snapshots?.forEach((bs: any) => {
+          newEntries[bs.broker_id] = {
+            amount: bs.amount?.toString() || "",
+            profit: bs.profit?.toString() || "",
+          };
         });
-        setAmounts(initAmounts);
-        setProfits(initProfits);
+        setEntries(newEntries);
+      } else {
+        // 如果當天沒資料，清空欄位並收合備註
+        setNote("");
+        setShowNoteInput(false);
+        setEntries({});
       }
-      setLoadingData(false);
     };
-
-    fetchExistingData();
-  }, [date, brokers, supabase]);
-
-  const totalAmount = Object.values(amounts).reduce((sum, v) => sum + (isNaN(parseFloat(v)) ? 0 : parseFloat(v)), 0);
-  const totalProfit = Object.values(profits).reduce((sum, v) => sum + (isNaN(parseFloat(v)) ? 0 : parseFloat(v)), 0);
-
-  const handleDelete = async () => {
-    if (!existingId) return;
-    if (!window.confirm("確定要刪除這天的紀錄嗎？")) return;
-    setSaving(true);
-    await supabase.from("daily_snapshots").delete().eq("id", existingId);
-    setSaving(false);
-    onSaved();
-  };
+    fetchExisting();
+  }, [date, supabase]);
 
   const handleSave = async () => {
-    if (brokers.length === 0) return setError("請先新增券商帳戶");
-    setSaving(true);
-    setError("");
+    try {
+      setLoading(true);
+      
+      // 1. 儲存每日總表與備註 (Upsert)
+      const { data: snapshotData, error: snapError } = await supabase
+        .from("daily_snapshots")
+        .upsert({ snapshot_date: date, note: note || null }, { onConflict: "snapshot_date" })
+        .select()
+        .single();
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setError("請重新登入"); setSaving(false); return; }
+      if (snapError) throw snapError;
 
-    const { data: snapshot, error: snapError } = await supabase
-      .from("daily_snapshots")
-      .upsert(
-        { user_id: user.id, snapshot_date: date, total_amount: totalAmount, total_profit: totalProfit, note: note },
-        { onConflict: "user_id,snapshot_date" }
-      )
-      .select("id").single();
+      // 2. 儲存各券商明細 (Upsert)
+      const upsertPromises = brokers.map((b) => {
+        const entry = entries[b.id];
+        // 確保空值時寫入 0
+        const amount = entry?.amount ? Number(entry.amount) : 0;
+        const profit = entry?.profit ? Number(entry.profit) : 0;
+        
+        // 如果連輸入都沒輸入，且金額都是 0，則跳過不存 (節省資料庫空間)
+        if (!entry?.amount && !entry?.profit && amount === 0 && profit === 0) {
+          return Promise.resolve();
+        }
 
-    if (snapError || !snapshot) { setError("儲存失敗"); setSaving(false); return; }
+        return supabase.from("broker_snapshots").upsert({
+          snapshot_id: snapshotData.id,
+          broker_id: b.id,
+          amount,
+          profit,
+        }, { onConflict: "snapshot_id,broker_id" });
+      });
 
-    const brokerRows = brokers
-      .filter((b) => amounts[b.id]?.trim() !== "" || profits[b.id]?.trim() !== "")
-      .map((b) => ({
-        daily_snapshot_id: snapshot.id,
-        broker_id: b.id,
-        amount: parseFloat(amounts[b.id]) || 0,
-        profit: parseFloat(profits[b.id]) || 0,
-      }));
-
-    await supabase.from("broker_snapshots").delete().eq("daily_snapshot_id", snapshot.id);
-    if (brokerRows.length > 0) {
-      await supabase.from("broker_snapshots").insert(brokerRows);
-    }
-
-    setSaving(false);
-    onSaved();
-  };
-
-  const handleNumberInput = (val: string, brokerId: string, isProfit: boolean) => {
-    if (val === "" || /^-?\d*\.?\d*$/.test(val)) {
-      if (isProfit) {
-        setProfits((p) => ({ ...p, [brokerId]: val }));
-      } else {
-        setAmounts((p) => ({ ...p, [brokerId]: val }));
-      }
+      await Promise.all(upsertPromises);
+      onSaved();
+    } catch (error) {
+      console.error("儲存失敗:", error);
+      alert("儲存失敗，請重試");
+    } finally {
+      setLoading(false);
     }
   };
+
+  const handleEntryChange = (brokerId: string, field: "amount" | "profit", value: string) => {
+    setEntries((prev) => ({
+      ...prev,
+      [brokerId]: {
+        ...prev[brokerId],
+        [field]: value,
+      },
+    }));
+  };
+
+  // 即時計算底部合計總額
+  const totals = useMemo(() => {
+    let totalAmount = 0;
+    let totalProfit = 0;
+    Object.values(entries).forEach((e) => {
+      totalAmount += Number(e.amount || 0);
+      totalProfit += Number(e.profit || 0);
+    });
+    return { amount: totalAmount, profit: totalProfit };
+  }, [entries]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-t-2xl border border-gray-800 bg-gray-900 p-5 shadow-2xl sm:mx-4 sm:rounded-2xl text-gray-100">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-100">{existingId ? "修改今日資料" : "記錄今日資料"}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:bg-gray-800 h-8 w-8 rounded-lg transition-colors">✕</button>
-        </div>
-
-        {brokers.length === 0 ? (
-          <p className="py-6 text-center text-sm text-gray-500">尚未設定券商</p>
-        ) : (
-          <>
-            <div className="mb-4">
-              <input 
-                type="date" 
-                value={date} 
-                max={today} 
-                onChange={(e) => setDate(e.target.value)} 
-                className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" 
-              />
-            </div>
-
-            {loadingData ? <p className="py-4 text-center text-sm text-gray-500">讀取中...</p> : (
-              <div className="mb-4 max-h-60 space-y-3 overflow-y-auto pr-1">
-                {brokers.map((broker) => (
-                  <div key={broker.id} className="rounded-xl border border-gray-800 bg-gray-950/50 p-3">
-                    <label className="mb-2 block text-sm font-semibold text-gray-200">{broker.name}</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="mb-1 block text-xs text-gray-500">總資產 (金額)</span>
-                        <input 
-                          type="text" 
-                          inputMode="decimal" 
-                          placeholder="資產" 
-                          value={amounts[broker.id] ?? ""} 
-                          onChange={(e) => handleNumberInput(e.target.value, broker.id, false)} 
-                          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-1" 
-                        />
-                      </div>
-                      <div>
-                        <span className="mb-1 block text-xs text-gray-500">累積損益 (選填)</span>
-                        <input 
-                          type="text" 
-                          inputMode="decimal" 
-                          placeholder="損益" 
-                          value={profits[broker.id] ?? ""} 
-                          onChange={(e) => handleNumberInput(e.target.value, broker.id, true)} 
-                          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-1" 
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="mb-4">
-              <label className="mb-1.5 block text-sm font-medium text-gray-400">交易筆記 / 備註</label>
-              <textarea 
-                placeholder="今天大盤大跌，加碼買進..." 
-                value={note} 
-                onChange={(e) => setNote(e.target.value)} 
-                rows={2} 
-                className="w-full resize-none rounded-xl border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-gray-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" 
-              />
-            </div>
-
-            <div className="mb-4 flex gap-2 rounded-xl border border-gray-800 bg-gray-950 px-4 py-3">
-              <div className="flex-1">
-                <span className="block text-xs text-gray-500">合計總資產</span>
-                <span className="text-sm font-bold text-gray-100">{formatCurrency(totalAmount)}</span>
-              </div>
-              <div className="flex-1 border-l border-gray-800 pl-4">
-                <span className="block text-xs text-gray-500">合計未實現損益</span>
-                <span className={`text-sm font-bold ${totalProfit > 0 ? "text-red-400" : totalProfit < 0 ? "text-green-400" : "text-gray-100"}`}>
-                  {totalProfit > 0 ? "+" : ""}{formatCurrency(totalProfit)}
-                </span>
-              </div>
-            </div>
-          </>
-        )}
-
-        {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
-        <div className="flex gap-2">
-          {existingId && <button onClick={handleDelete} disabled={saving} className="flex-1 rounded-xl bg-red-950/50 px-4 py-3 text-sm font-medium text-red-400 hover:bg-red-900/50 border border-red-900/50 transition-colors">刪除</button>}
-          {!existingId && <button onClick={onClose} className="flex-1 rounded-xl border border-gray-700 bg-transparent px-4 py-3 text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors">取消</button>}
-          <button onClick={handleSave} disabled={saving || brokers.length === 0 || loadingData} className="flex-1 rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors">
-            {saving ? "處理中..." : (existingId ? "儲存修改" : "新增紀錄")}
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/80 backdrop-blur-sm sm:items-center sm:justify-center">
+      {/* Modal 容器：限制最大高度並設定可以滾動 */}
+      <div className="flex max-h-[90vh] w-full flex-col rounded-t-3xl border border-gray-800 bg-gray-950 shadow-2xl sm:max-w-md sm:rounded-2xl">
+        
+        {/* 頂部標題列 */}
+        <div className="flex items-center justify-between border-b border-gray-800/60 p-5">
+          <h2 className="text-lg font-bold text-gray-100">記錄今日資料</h2>
+          <button onClick={onClose} className="rounded-full p-1.5 text-gray-400 hover:bg-gray-800 hover:text-gray-100 transition-colors">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
+
+        {/* 內容滾動區塊 */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* 日期選擇器 */}
+          <input 
+            type="date" 
+            value={date} 
+            onChange={(e) => setDate(e.target.value)} 
+            className="w-full rounded-xl border border-gray-800 bg-gray-900 px-4 py-3.5 text-sm font-medium text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
+          />
+
+          {/* 券商輸入清單 */}
+          <div className="space-y-3">
+            {brokers.map((b) => (
+              <div key={b.id} className="flex flex-col gap-2 rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-sm">
+                <div className="text-sm font-medium text-gray-200">{b.name}</div>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="mb-1.5 block text-[11px] font-medium text-gray-500">總資產 (金額)</label>
+                    <input 
+                      type="number" 
+                      placeholder="資產" 
+                      value={entries[b.id]?.amount || ""} 
+                      onChange={(e) => handleEntryChange(b.id, "amount", e.target.value)} 
+                      className="w-full rounded-lg border border-gray-800 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="mb-1.5 block text-[11px] font-medium text-gray-500">累積損益 (選填)</label>
+                    <input 
+                      type="number" 
+                      placeholder="損益" 
+                      value={entries[b.id]?.profit || ""} 
+                      onChange={(e) => handleEntryChange(b.id, "profit", e.target.value)} 
+                      className="w-full rounded-lg border border-gray-800 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 交易筆記 / 備註 區塊 (收納展開設計) */}
+          <div className="pt-2 pb-4">
+            {!showNoteInput ? (
+              <button
+                type="button"
+                onClick={() => setShowNoteInput(true)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-gray-700 bg-gray-900/40 py-3.5 text-sm font-medium text-gray-400 hover:border-gray-500 hover:text-gray-300 hover:bg-gray-800/50 transition-all"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                新增交易筆記 / 備註
+              </button>
+            ) : (
+              <div className="flex flex-col gap-2 rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-gray-400">交易筆記 / 備註</label>
+                  <button 
+                    type="button"
+                    onClick={() => { setShowNoteInput(false); setNote(""); }} 
+                    className="text-[11px] text-gray-500 hover:text-red-400 transition-colors"
+                  >
+                    移除備註
+                  </button>
+                </div>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="今天大盤大跌，加碼買進..."
+                  className="h-24 w-full resize-none rounded-lg border border-gray-800 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 底部浮動合計與按鈕列 */}
+        <div className="border-t border-gray-800/60 bg-gray-950 p-5">
+          <div className="mb-4 flex justify-between rounded-xl border border-gray-800 bg-gray-900 p-3.5">
+            <div>
+              <div className="text-[11px] font-medium text-gray-500">合計總資產</div>
+              <div className="mt-0.5 font-bold text-gray-100">{formatCurrency(totals.amount)}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] font-medium text-gray-500">合計未實現損益</div>
+              <div className="mt-0.5 font-bold text-gray-100">{formatCurrency(totals.profit)}</div>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 rounded-xl border border-gray-800 bg-transparent py-3.5 text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors">
+              取消
+            </button>
+            <button onClick={handleSave} disabled={loading} className="flex-1 rounded-xl bg-blue-600 py-3.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {loading ? "儲存中..." : "新增紀錄"}
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
   );
