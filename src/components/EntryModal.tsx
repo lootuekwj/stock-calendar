@@ -21,6 +21,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
   // UX 優化：控制備註欄位是否展開的狀態
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hasExisting, setHasExisting] = useState(false); // 追蹤今日是否已有紀錄
 
   // 當日期改變時，自動去資料庫撈取當天是否已經有紀錄
   useEffect(() => {
@@ -32,6 +33,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         .maybeSingle();
 
       if (data) {
+        setHasExisting(true);
         setNote(data.note || "");
         // 貼心設計：如果資料庫裡原本就有寫備註，就自動幫使用者展開
         if (data.note) {
@@ -50,6 +52,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         setEntries(newEntries);
       } else {
         // 如果當天沒資料，清空欄位並收合備註
+        setHasExisting(false);
         setNote("");
         setShowNoteInput(false);
         setEntries({});
@@ -96,6 +99,26 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
     } catch (error) {
       console.error("儲存失敗:", error);
       alert("儲存失敗，請重試");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm("確定要刪除這天的紀錄嗎？此動作無法復原。")) return;
+    
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from("daily_snapshots")
+        .delete()
+        .eq("snapshot_date", date);
+
+      if (error) throw error;
+      onSaved(); // 刪除成功後關閉 Modal 並重新抓取資料
+    } catch (error) {
+      console.error("刪除失敗:", error);
+      alert("刪除失敗，請重試");
     } finally {
       setLoading(false);
     }
@@ -223,11 +246,27 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
             </div>
           </div>
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 rounded-xl border border-gray-800 bg-transparent py-3.5 text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors">
+            {hasExisting && (
+              <button 
+                onClick={handleDelete} 
+                disabled={loading} 
+                className="rounded-xl border border-red-900/50 bg-red-950/30 px-4 py-3.5 text-sm font-medium text-red-400 hover:bg-red-900/50 disabled:opacity-50 transition-colors"
+              >
+                刪除
+              </button>
+            )}
+            <button 
+              onClick={onClose} 
+              className="flex-1 rounded-xl border border-gray-800 bg-transparent py-3.5 text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors"
+            >
               取消
             </button>
-            <button onClick={handleSave} disabled={loading} className="flex-1 rounded-xl bg-blue-600 py-3.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              {loading ? "儲存中..." : "新增紀錄"}
+            <button 
+              onClick={handleSave} 
+              disabled={loading} 
+              className="flex-1 rounded-xl bg-blue-600 py-3.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {loading ? "處理中..." : hasExisting ? "儲存更新" : "新增紀錄"}
             </button>
           </div>
         </div>
