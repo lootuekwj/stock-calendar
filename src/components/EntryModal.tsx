@@ -24,10 +24,15 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
 
   useEffect(() => {
     const fetchExisting = async () => {
+      // 安全升級：先取得當前登入的使用者身分
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { data } = await supabase
         .from("daily_snapshots")
         .select("*, broker_snapshots(*)")
         .eq("snapshot_date", date)
+        .eq("user_id", user.id) // 🔒 確保只撈取屬於自己的記帳紀錄
         .maybeSingle();
 
       if (data) {
@@ -56,33 +61,33 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
     try {
       setLoading(true);
       const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
+      if (userError || !user) throw new Error("使用者身分驗證失敗，請重新登入");
       
       let snapshotId;
       const { data: existing } = await supabase
         .from("daily_snapshots")
         .select("id")
         .eq("snapshot_date", date)
+        .eq("user_id", user.id) // 🔒 確保只比對屬於自己的紀錄
         .maybeSingle();
 
-      // 總表儲存邏輯
       if (existing) {
         snapshotId = existing.id;
         const { error: updateError } = await supabase
           .from("daily_snapshots")
           .update({ note: note || null })
-          .eq("id", snapshotId);
+          .eq("id", snapshotId)
+          .eq("user_id", user.id); // 🔒 安全鎖
         if (updateError) throw updateError;
       } else {
         const { data: inserted, error: insertError } = await supabase
           .from("daily_snapshots")
-          .insert({ snapshot_date: date, note: note || null, user_id: user?.id })
+          .insert({ snapshot_date: date, note: note || null, user_id: user.id })
           .select().single();
         if (insertError) throw insertError;
         snapshotId = inserted.id;
       }
 
-      // 明細表儲存邏輯 (已修正為正確的 daily_snapshot_id)
       await Promise.all(brokers.map((b) => {
         const entry = entries[b.id];
         const amount = entry?.amount ? Number(entry.amount) : 0;
@@ -93,11 +98,11 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         }
 
         return supabase.from("broker_snapshots").upsert({
-          daily_snapshot_id: snapshotId, // 修正這裡！
+          daily_snapshot_id: snapshotId,
           broker_id: b.id,
           amount,
           profit,
-        }, { onConflict: "daily_snapshot_id,broker_id" }); // 修正這裡！
+        }, { onConflict: "daily_snapshot_id,broker_id" });
       }));
 
       onSaved();
@@ -113,7 +118,14 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
     if (!window.confirm("確定刪除此筆資料？")) return;
     try {
       setLoading(true);
-      const { error } = await supabase.from("daily_snapshots").delete().eq("snapshot_date", date);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("身分驗證失敗");
+
+      const { error } = await supabase
+        .from("daily_snapshots")
+        .delete()
+        .eq("snapshot_date", date)
+        .eq("user_id", user.id); // 🔒 確保只能刪除自己的
       if (error) throw error;
       onSaved();
     } catch (e: any) {
