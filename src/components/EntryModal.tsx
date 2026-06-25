@@ -34,7 +34,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         setHasExisting(true);
         setNote(data.note || "");
         setShowNoteInput(!!data.note);
-        
         const newEntries: Record<string, { amount: string; profit: string }> = {};
         data.broker_snapshots?.forEach((bs: any) => {
           newEntries[bs.broker_id] = {
@@ -56,63 +55,75 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
   const handleSave = async () => {
     try {
       setLoading(true);
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
       
-      // 1. 回歸最穩定的 Upsert 總表儲存法
-      const { data: snapshotData, error: snapError } = await supabase
+      let snapshotId;
+      const { data: existing } = await supabase
         .from("daily_snapshots")
-        .upsert({ snapshot_date: date, note: note || null }, { onConflict: "snapshot_date" })
-        .select()
-        .single();
+        .select("id")
+        .eq("snapshot_date", date)
+        .maybeSingle();
 
-      if (snapError) throw new Error(`總表儲存失敗: ${snapError.message}`);
+      // 總表儲存邏輯
+      if (existing) {
+        snapshotId = existing.id;
+        const { error: updateError } = await supabase
+          .from("daily_snapshots")
+          .update({ note: note || null })
+          .eq("id", snapshotId);
+        if (updateError) throw updateError;
+      } else {
+        const { data: inserted, error: insertError } = await supabase
+          .from("daily_snapshots")
+          .insert({ snapshot_date: date, note: note || null, user_id: user?.id })
+          .select().single();
+        if (insertError) throw insertError;
+        snapshotId = inserted.id;
+      }
 
-      // 2. 儲存券商明細，加上嚴格的 await 錯誤攔截，絕對不再靜默失敗
-      const upsertPromises = brokers.map(async (b) => {
+      // 明細表儲存邏輯 (已修正為正確的 daily_snapshot_id)
+      await Promise.all(brokers.map((b) => {
         const entry = entries[b.id];
         const amount = entry?.amount ? Number(entry.amount) : 0;
         const profit = entry?.profit ? Number(entry.profit) : 0;
-        
+
         if (!entry?.amount && !entry?.profit && amount === 0 && profit === 0) {
-          return;
+          return Promise.resolve();
         }
 
-        const { error } = await supabase.from("broker_snapshots").upsert({
-          snapshot_id: snapshotData.id,
+        return supabase.from("broker_snapshots").upsert({
+          daily_snapshot_id: snapshotId, // 修正這裡！
           broker_id: b.id,
           amount,
           profit,
-        }, { onConflict: "snapshot_id,broker_id" });
+        }, { onConflict: "daily_snapshot_id,broker_id" }); // 修正這裡！
+      }));
 
-        if (error) throw new Error(`券商 ${b.name} 儲存失敗: ${error.message}`);
-      });
-
-      await Promise.all(upsertPromises);
       onSaved();
     } catch (e: any) {
       console.error("儲存失敗詳細原因:", e);
-      // 如果資料庫拒絕，保證一定會跳出這張警告牌
-      alert(`儲存發生錯誤:\n${e.message}`);
+      alert(`儲存失敗: ${e.message || "未知資料庫錯誤"}`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("確定要刪除這天的紀錄嗎？此動作無法復原。")) return;
+    if (!window.confirm("確定刪除此筆資料？")) return;
     try {
       setLoading(true);
       const { error } = await supabase.from("daily_snapshots").delete().eq("snapshot_date", date);
-      if (error) throw new Error(error.message);
-      onSaved(); 
+      if (error) throw error;
+      onSaved();
     } catch (e: any) {
-      alert(`刪除失敗:\n${e.message}`);
+      alert(`刪除失敗: ${e.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleEntryChange = (brokerId: string, field: "amount" | "profit", value: string) => {
-    // 嚴格允許數字與小數點輸入
     if (value !== "" && !/^-?[0-9]*\.?[0-9]*$/.test(value)) return;
     setEntries((prev) => ({
       ...prev,
@@ -142,12 +153,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <input 
-            type="date" 
-            value={date} 
-            onChange={(e) => setDate(e.target.value)} 
-            className="w-full rounded-xl border border-gray-800 bg-gray-900 px-4 py-3.5 text-sm font-medium text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" 
-          />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-gray-800 bg-gray-900 px-4 py-3.5 text-sm font-medium text-gray-100 focus:border-blue-500 focus:outline-none" />
 
           <div className="space-y-3">
             {brokers.map((b) => (
@@ -156,7 +162,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <label className="mb-1 block text-[11px] text-gray-500">總資產 (金額)</label>
-                    {/* 這裡確保了手機絕對會跳出數字九宮格鍵盤 */}
                     <input 
                       type="text" 
                       inputMode="decimal" 
