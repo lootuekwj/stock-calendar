@@ -24,7 +24,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
 
   useEffect(() => {
     const fetchExisting = async () => {
-      // 安全升級：先取得當前登入的使用者身分
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -32,7 +31,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         .from("daily_snapshots")
         .select("*, broker_snapshots(*)")
         .eq("snapshot_date", date)
-        .eq("user_id", user.id) // 🔒 確保只撈取屬於自己的記帳紀錄
+        .eq("user_id", user.id)
         .maybeSingle();
 
       if (data) {
@@ -68,7 +67,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         .from("daily_snapshots")
         .select("id")
         .eq("snapshot_date", date)
-        .eq("user_id", user.id) // 🔒 確保只比對屬於自己的紀錄
+        .eq("user_id", user.id)
         .maybeSingle();
 
       if (existing) {
@@ -77,7 +76,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
           .from("daily_snapshots")
           .update({ note: note || null })
           .eq("id", snapshotId)
-          .eq("user_id", user.id); // 🔒 安全鎖
+          .eq("user_id", user.id);
         if (updateError) throw updateError;
       } else {
         const { data: inserted, error: insertError } = await supabase
@@ -125,7 +124,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         .from("daily_snapshots")
         .delete()
         .eq("snapshot_date", date)
-        .eq("user_id", user.id); // 🔒 確保只能刪除自己的
+        .eq("user_id", user.id);
       if (error) throw error;
       onSaved();
     } catch (e: any) {
@@ -136,11 +135,36 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
   };
 
   const handleEntryChange = (brokerId: string, field: "amount" | "profit", value: string) => {
+    // 允許輸入數字、小數點以及最前方的負號
     if (value !== "" && !/^-?[0-9]*\.?[0-9]*$/.test(value)) return;
     setEntries((prev) => ({
       ...prev,
       [brokerId]: { ...prev[brokerId], [field]: value },
     }));
+  };
+
+  // 解決手機數字鍵盤無負號的點擊切換邏輯
+  const toggleProfitSign = (brokerId: string) => {
+    setEntries((prev) => {
+      const currentProfit = prev[brokerId]?.profit || "";
+      let newProfit = currentProfit;
+      
+      if (currentProfit.startsWith("-")) {
+        newProfit = currentProfit.slice(1); // 負轉正
+      } else if (currentProfit !== "") {
+        newProfit = "-" + currentProfit; // 正轉負
+      } else {
+        newProfit = "-"; // 空值時直接預填負號
+      }
+
+      return {
+        ...prev,
+        [brokerId]: {
+          ...prev[brokerId],
+          profit: newProfit
+        }
+      };
+    });
   };
 
   const totals = useMemo(() => {
@@ -186,15 +210,26 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                   </div>
                   <div className="flex-1">
                     <label className="mb-1 block text-[11px] text-gray-500">累積損益 (選填)</label>
-                    <input 
-                      type="text" 
-                      inputMode="decimal" 
-                      pattern="[0-9.]*"
-                      placeholder="損益" 
-                      value={entries[b.id]?.profit || ""} 
-                      onChange={(e) => handleEntryChange(b.id, "profit", e.target.value)} 
-                      className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
-                    />
+                    {/* 包裹容器以實現內嵌按鈕 */}
+                    <div className="relative flex items-center">
+                      <input 
+                        type="text" 
+                        inputMode="decimal" 
+                        pattern="[0-9.]*"
+                        placeholder="損益" 
+                        value={entries[b.id]?.profit || ""} 
+                        onChange={(e) => handleEntryChange(b.id, "profit", e.target.value)} 
+                        className="w-full bg-gray-950 pl-2.5 pr-12 py-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
+                      />
+                      {/* 正負號切換鍵 */}
+                      <button
+                        type="button"
+                        onClick={() => toggleProfitSign(b.id)}
+                        className="absolute right-1.5 px-2 py-1 rounded bg-gray-800 text-[10px] font-bold text-gray-400 active:bg-gray-700 active:text-white transition-colors"
+                      >
+                        +/-
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
