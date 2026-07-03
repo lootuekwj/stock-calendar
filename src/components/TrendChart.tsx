@@ -44,7 +44,7 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
     const startStr = format(start, "yyyy-MM-dd");
     const todayStr = format(new Date(), "yyyy-MM-dd");
 
-    // 往回找上一個月份的最後一筆紀錄，做為月初的比較基準點
+    // 往回找上一個月份（或區間）的最後一筆紀錄
     const prevSnap = [...snapshots].reverse().find(s => s.snapshot_date < startStr);
     
     let prevUserAsset: number | null = null;
@@ -73,32 +73,39 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
     let baseUserAsset = 0;
     let baseUserProfit = 0;
     
-    // 找出本週期內，有紀錄的第一天作為 0050 的起算基準
-    for (const day of days) {
-      const dStr = format(day, "yyyy-MM-dd");
-      if (dStr > todayStr) break; // 未來日期不用當基準
-
-      const snap = snapshots.find(s => s.snapshot_date === dStr);
-      if (snap && snap.broker_snapshots && snap.broker_snapshots.length > 0) {
-        let totalAsset = 0;
-        let totalProfit = 0;
-        snap.broker_snapshots.forEach((bs: any) => {
-          if (selectedBrokers.includes(bs.broker_id)) {
-            totalAsset += Number(bs.amount || 0);
-            totalProfit += Number(bs.profit || 0);
+    // 【核心修正】：優先使用「前一筆紀錄(例如 6/30)」當作 0050 的基準定錨點！
+    // 這樣 7/1 就不會被強制歸零貼齊，而是會真實延續 6/30 的差距
+    if (prevSnap && prevUserAsset !== null && prevUserProfit !== null) {
+      baseDateStr = prevSnap.snapshot_date;
+      baseUserAsset = prevUserAsset;
+      baseUserProfit = prevUserProfit;
+    } else {
+      // 如果完全沒有前一筆資料（例如剛開始用 App 的第一個月），才往後找本月第一筆
+      for (const day of days) {
+        const dStr = format(day, "yyyy-MM-dd");
+        if (dStr > todayStr) break; 
+  
+        const snap = snapshots.find(s => s.snapshot_date === dStr);
+        if (snap && snap.broker_snapshots && snap.broker_snapshots.length > 0) {
+          let totalAsset = 0;
+          let totalProfit = 0;
+          snap.broker_snapshots.forEach((bs: any) => {
+            if (selectedBrokers.includes(bs.broker_id)) {
+              totalAsset += Number(bs.amount || 0);
+              totalProfit += Number(bs.profit || 0);
+            }
+          });
+          
+          if (totalAsset !== 0) {
+            baseDateStr = dStr;
+            baseUserAsset = totalAsset;
+            baseUserProfit = totalProfit;
+            break;
           }
-        });
-        
-        if (totalAsset !== 0) {
-          baseDateStr = dStr;
-          baseUserAsset = totalAsset;
-          baseUserProfit = totalProfit;
-          break;
         }
       }
     }
 
-    // 將大盤取價函式拉上來，方便前面使用
     const getRealMarketPrice = (dateStr: string) => {
       let checkDate = new Date(dateStr);
       for (let i = 0; i < 7; i++) {
@@ -117,7 +124,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
     let prev0050Price: number | null = null;
     let prevBenchValue: number | null = null;
 
-    // 【修正 1】：精準銜接 0050 歷史最後一筆資料的基準點 (例如 6/30)，解決 7/1 斷線問題
     if (prevSnap && base0050Price && virtualShares > 0) {
       prev0050Price = getRealMarketPrice(prevSnap.snapshot_date);
       if (prev0050Price !== null) {
@@ -132,7 +138,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
     return days.map(day => {
       const dateStr = format(day, "yyyy-MM-dd");
 
-      // 【修正 2】：切斷未來日期的 0% 幽靈虛線！若大於今天，直接回傳空值，Recharts 就會停筆
       if (dateStr > todayStr) {
         return {
           date: dateStr,
