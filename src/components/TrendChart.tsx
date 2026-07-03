@@ -12,7 +12,6 @@ type Props = {
   snapshots: SnapshotWithBrokers[];
   selectedBrokers: string[];
   currentMonth: Date;
-  // 新增 total 模式
   calcMode: "asset" | "profit" | "total";
   marketData: Map<string, number>;
 };
@@ -43,8 +42,9 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
 
     const days = eachDayOfInterval({ start, end });
     const startStr = format(start, "yyyy-MM-dd");
+    const todayStr = format(new Date(), "yyyy-MM-dd");
 
-    // 【跨月連貫核心邏輯】往回尋找 start 之前的最新一筆紀錄，作為月初比較的基準點
+    // 往回找上一個月份的最後一筆紀錄，做為月初的比較基準點
     const prevSnap = [...snapshots].reverse().find(s => s.snapshot_date < startStr);
     
     let prevUserAsset: number | null = null;
@@ -73,8 +73,11 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
     let baseUserAsset = 0;
     let baseUserProfit = 0;
     
+    // 找出本週期內，有紀錄的第一天作為 0050 的起算基準
     for (const day of days) {
       const dStr = format(day, "yyyy-MM-dd");
+      if (dStr > todayStr) break; // 未來日期不用當基準
+
       const snap = snapshots.find(s => s.snapshot_date === dStr);
       if (snap && snap.broker_snapshots && snap.broker_snapshots.length > 0) {
         let totalAsset = 0;
@@ -95,6 +98,7 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       }
     }
 
+    // 將大盤取價函式拉上來，方便前面使用
     const getRealMarketPrice = (dateStr: string) => {
       let checkDate = new Date(dateStr);
       for (let i = 0; i < 7; i++) {
@@ -113,8 +117,35 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
     let prev0050Price: number | null = null;
     let prevBenchValue: number | null = null;
 
+    // 【修正 1】：精準銜接 0050 歷史最後一筆資料的基準點 (例如 6/30)，解決 7/1 斷線問題
+    if (prevSnap && base0050Price && virtualShares > 0) {
+      prev0050Price = getRealMarketPrice(prevSnap.snapshot_date);
+      if (prev0050Price !== null) {
+        if (calcMode === "profit") {
+          prevBenchValue = baseUserProfit + (prev0050Price - base0050Price) * virtualShares;
+        } else if (calcMode === "asset") {
+          prevBenchValue = virtualShares * prev0050Price;
+        }
+      }
+    }
+
     return days.map(day => {
       const dateStr = format(day, "yyyy-MM-dd");
+
+      // 【修正 2】：切斷未來日期的 0% 幽靈虛線！若大於今天，直接回傳空值，Recharts 就會停筆
+      if (dateStr > todayStr) {
+        return {
+          date: dateStr,
+          label: format(day, range === '1y' ? "MM/yy" : "M/d"),
+          amount: null,
+          userChange: null,
+          userPct: null,
+          benchAmount: null,
+          benchChange: null,
+          benchPricePct: null,
+        };
+      }
+
       const snap = snapshots.find(s => s.snapshot_date === dateStr);
       
       let currentAsset: number | null = null;
@@ -139,14 +170,12 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
         currentTotal = t;
       }
 
-      // 決定目前模式下的主要數值與上一次的數值
       let mainVal: number | null = null;
       let prevMainVal: number | null = null;
       if (calcMode === "asset") { mainVal = currentAsset; prevMainVal = prevUserAsset; }
       else if (calcMode === "profit") { mainVal = currentProfit; prevMainVal = prevUserProfit; }
       else if (calcMode === "total") { mainVal = currentTotal; prevMainVal = prevUserTotal; }
 
-      // 計算真實資產/損益的增減金額與 % 數
       let userChange = null;
       let userPct = null;
       if (mainVal !== null && prevMainVal !== null && prevMainVal !== 0) {
@@ -154,12 +183,10 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
         userPct = userChange / Math.abs(prevMainVal);
       }
 
-      // 更新下一輪使用的基準值
       if (currentAsset !== null) prevUserAsset = currentAsset;
       if (currentProfit !== null) prevUserProfit = currentProfit;
       if (currentTotal !== null) prevUserTotal = currentTotal;
 
-      // 0050 真實股價與對照線邏輯 (只有在 profit 模式下才計算)
       let currentBenchValue = null;
       let benchChange = null;
       let benchPricePct = null;
@@ -184,7 +211,7 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       return {
         date: dateStr,
         label: format(day, range === '1y' ? "MM/yy" : "M/d"),
-        amount: mainVal, // 直接傳入對應模式算好的數值
+        amount: mainVal,
         userChange,
         userPct,
         benchAmount: currentBenchValue,
@@ -209,7 +236,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
         <div className="rounded-xl border border-gray-700 bg-gray-900/95 p-3 shadow-2xl backdrop-blur-sm">
           <p className="mb-2 border-b border-gray-800 pb-1 text-xs text-gray-400">日期：{data.date}</p>
           
-          {/* 用戶真實數據區塊 */}
           {data.amount !== null && (
             <div className="mb-2 flex items-start justify-between gap-6">
               <div className="flex items-center gap-1.5 mt-0.5">
@@ -232,7 +258,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
             </div>
           )}
 
-          {/* 0050 對照線區塊 (僅在 profit 模式顯示) */}
           {calcMode === "profit" && data.benchAmount !== null && (
             <div className="flex items-start justify-between gap-6 border-t border-gray-800/60 mt-2 pt-2">
               <div className="flex items-center gap-1.5 mt-0.5">
@@ -265,7 +290,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
           <h3 className="text-sm font-semibold text-gray-100">
             {calcMode === "asset" ? "證券趨勢走勢" : calcMode === "profit" ? "損益趨勢走勢" : "總資產趨勢走勢"}
           </h3>
-          {/* 僅在損益模式顯示提示文字 */}
           {calcMode === "profit" && (
             <span className="text-[10px] text-gray-500">
               包含 0050 真實損益對照線
@@ -289,7 +313,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
             
             <RechartsTooltip content={<CustomTooltip />} />
             
-            {/* 0050 基準線 - 僅於損益模式渲染 */}
             {calcMode === "profit" && (
               <RechartsLine 
                 type="monotone" 
