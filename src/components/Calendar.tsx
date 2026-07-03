@@ -64,55 +64,57 @@ export default function Calendar({
           const dailySnapshot = currentIndex !== -1 ? snapshots[currentIndex] : null;
           const prevSnapshot = currentIndex > 0 ? snapshots[currentIndex - 1] : null;
 
-          const dayDetails = dailySnapshot?.broker_snapshots
-            ?.filter((bs) => selectedBrokers.includes(bs.broker_id))
-            .map((bs: any) => {
-              const broker = brokers.find((b) => b.id === bs.broker_id);
-              const prevBs = prevSnapshot?.broker_snapshots?.find((p) => p.broker_id === bs.broker_id);
-              
-              const hasPrev = !!prevBs;
-              // 股票資產
-              const prevAsset = hasPrev ? Number(prevBs.amount || 0) : Number(bs.amount || 0);
-              const currentAsset = Number(bs.amount || 0);
-              // 累積損益
-              const prevProfit = hasPrev ? Number(prevBs.profit || 0) : Number(bs.profit || 0);
-              const currentProfit = Number(bs.profit || 0);
-              // 現金與交割
-              const currentCash = Number(bs.cash_balance || 0);
-              const currentSettlement = Number(bs.settlement_amount || 0);
-              const prevCash = hasPrev ? Number(prevBs.cash_balance || 0) : currentCash;
-              const prevSettlement = hasPrev ? Number(prevBs.settlement_amount || 0) : currentSettlement;
+          // 【修正1】：強制依照系統設定好的 brokers 順序來渲染，解決每天順序亂跳的問題
+          const dayDetails: any[] = [];
+          brokers.forEach((broker) => {
+            if (!selectedBrokers.includes(broker.id)) return;
+            
+            const bs = dailySnapshot?.broker_snapshots?.find((snap: any) => snap.broker_id === broker.id);
+            if (!bs) return;
 
-              // 總資產計算
-              const currentTotal = currentAsset + currentCash + currentSettlement;
-              const prevTotal = prevAsset + prevCash + prevSettlement;
+            const prevBs = prevSnapshot?.broker_snapshots?.find((p: any) => p.broker_id === broker.id);
+            
+            const hasPrev = !!prevBs;
+            const prevAsset = hasPrev ? Number(prevBs.amount || 0) : Number(bs.amount || 0);
+            const currentAsset = Number(bs.amount || 0);
+            
+            const prevProfit = hasPrev ? Number(prevBs.profit || 0) : Number(bs.profit || 0);
+            const currentProfit = Number(bs.profit || 0);
+            
+            const currentCash = Number(bs.cash_balance || 0);
+            const currentSettlement = Number(bs.settlement_amount || 0);
+            const prevCash = hasPrev ? Number(prevBs.cash_balance || 0) : currentCash;
+            const prevSettlement = hasPrev ? Number(prevBs.settlement_amount || 0) : currentSettlement;
 
-              const dailyAssetChange = currentAsset - prevAsset;
-              const dailyProfitChange = currentProfit - prevProfit;
-              const dailyTotalChange = currentTotal - prevTotal;
+            const currentTotal = currentAsset + currentCash + currentSettlement;
+            const prevTotal = prevAsset + prevCash + prevSettlement;
 
-              const dailyAssetPercent = (hasPrev && prevAsset !== 0) ? (dailyAssetChange / Math.abs(prevAsset)) : 0;
-              const dailyProfitPercent = (hasPrev && prevProfit !== 0) ? (dailyProfitChange / Math.abs(prevProfit)) : 0;
-              const dailyTotalPercent = (hasPrev && prevTotal !== 0) ? (dailyTotalChange / Math.abs(prevTotal)) : 0;
-              
-              // 計算現金水位百分比
-              const cashLevelPercent = currentTotal !== 0 ? (currentCash / currentTotal) * 100 : 0;
+            const dailyAssetChange = currentAsset - prevAsset;
+            const dailyProfitChange = currentProfit - prevProfit;
+            const dailyTotalChange = currentTotal - prevTotal;
 
-              return {
-                name: broker?.name || "未知券商",
-                amount: currentAsset,
-                profit: currentProfit,
-                total: currentTotal,
-                cash: currentCash,
-                cashLevelPercent,
-                dailyAssetChange,
-                dailyProfitChange,
-                dailyTotalChange,
-                dailyAssetPercent,
-                dailyProfitPercent,
-                dailyTotalPercent
-              };
-            }) || [];
+            const dailyAssetPercent = (hasPrev && prevAsset !== 0) ? (dailyAssetChange / Math.abs(prevAsset)) : 0;
+            const dailyProfitPercent = (hasPrev && prevProfit !== 0) ? (dailyProfitChange / Math.abs(prevProfit)) : 0;
+            const dailyTotalPercent = (hasPrev && prevTotal !== 0) ? (dailyTotalChange / Math.abs(prevTotal)) : 0;
+            
+            const cashLevelPercent = currentTotal !== 0 ? ((currentCash + currentSettlement) / currentTotal) * 100 : 0;
+
+            dayDetails.push({
+              name: broker.name,
+              amount: currentAsset,
+              profit: currentProfit,
+              total: currentTotal,
+              // 【修正2】：畫面上的現金明確加上交割款，讓記帳邏輯無縫對接
+              cash: currentCash + currentSettlement,
+              cashLevelPercent,
+              dailyAssetChange,
+              dailyProfitChange,
+              dailyTotalChange,
+              dailyAssetPercent,
+              dailyProfitPercent,
+              dailyTotalPercent
+            });
+          });
 
           const isTooltipActive = activeTooltipDate === dateStr;
 
@@ -135,7 +137,6 @@ export default function Calendar({
                       <div className={`whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px] ${textColors[color]}`}>
                         {data.changeAmount > 0 ? "+" : ""}{formatCompact(data.changeAmount)}
                       </div>
-                      {/* 總資產模式與證券資產模式都會顯示 % 數 */}
                       {(calcMode === "asset" || calcMode === "total") && data.changePercent !== null && (
                         <div className={`whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px] opacity-85 ${textColors[color]}`}>
                           ({data.changePercent > 0 ? "+" : ""}{(data.changePercent * 100).toFixed(2)}%)
@@ -183,7 +184,6 @@ export default function Calendar({
                             </span>
                           </div>
                           
-                          {/* 總資產模式專屬：顯示現金與現金水位 */}
                           {isTotalMode && (
                             <div className="mt-1.5 border-t border-gray-800/60 pt-1 flex justify-between text-[10px] text-gray-400">
                               <span>證券: {formatCompact(d.amount)}</span>
