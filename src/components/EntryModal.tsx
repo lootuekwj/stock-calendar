@@ -34,7 +34,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. 先查當天是否已有紀錄
       const { data } = await supabase
         .from("daily_snapshots")
         .select("*, broker_snapshots(*)")
@@ -57,7 +56,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         });
         setEntries(newEntries);
       } else {
-        // 2. 當天沒紀錄！智慧防呆：自動撈取該日期之前的「最新一筆歷史紀錄」作為預填預設值
         setHasExisting(false);
         setNote("");
         setShowNoteInput(false);
@@ -74,14 +72,13 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         const defaultEntries: Record<string, EntryFields> = {};
         
         brokers.forEach((b) => {
-          // 如果有找到前一次紀錄，則預填 股票、損益、現金；交割款固定歸 0
           const prevBrokerData = prevSnapshot?.broker_snapshots?.find((bs: any) => bs.broker_id === b.id);
           
           defaultEntries[b.id] = {
             amount: prevBrokerData?.amount?.toString() || "",
             profit: prevBrokerData?.profit?.toString() || "",
             cash_balance: prevBrokerData?.cash_balance?.toString() || "",
-            settlement_amount: "0", // 交割款預設必為 0
+            settlement_amount: "0", 
           };
         });
         setEntries(defaultEntries);
@@ -128,7 +125,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         const cash = entry?.cash_balance ? Number(entry.cash_balance) : 0;
         const settlement = entry?.settlement_amount ? Number(entry.settlement_amount) : 0;
 
-        // 如果全新資料全為 0 且未填，跳過不存以維護容量
         if (!entry?.amount && !entry?.profit && !entry?.cash_balance && settlement === 0 && amount === 0 && profit === 0 && cash === 0) {
           return Promise.resolve();
         }
@@ -180,7 +176,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
     }));
   };
 
-  // 正負號切換通用函式
   const toggleSign = (brokerId: string, field: "profit" | "settlement_amount") => {
     setEntries((prev) => {
       const currentVal = prev[brokerId]?.[field] || "";
@@ -199,7 +194,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
     });
   };
 
-  // 底部即時加總面板數據 (此處加總包含股票+現金+交割款)
   const totals = useMemo(() => {
     let totalStock = 0;
     let totalProfit = 0;
@@ -228,21 +222,27 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-gray-800 bg-gray-900 px-4 py-3.5 text-sm font-medium text-gray-100 focus:border-blue-500 focus:outline-none" />
+          {/* 加入 [color-scheme:dark] 讓電腦版原生日曆圖示變成白色 */}
+          <input 
+            type="date" 
+            value={date} 
+            onChange={(e) => setDate(e.target.value)} 
+            className="w-full rounded-xl border border-gray-800 bg-gray-900 px-4 py-3.5 text-sm font-medium text-gray-100 focus:border-blue-500 focus:outline-none [color-scheme:dark]" 
+          />
 
           <div className="space-y-4">
             {brokers.map((b) => (
               <div key={b.id} className="bg-gray-900 p-4 rounded-xl border border-gray-800 shadow-sm flex flex-col gap-3">
                 <div className="text-sm font-bold text-blue-400 border-b border-gray-800 pb-1.5">{b.name}</div>
                 
-                {/* 第一排：股票資產 & 累積損益 */}
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <label className="mb-1 block text-[11px] text-gray-500">1. 股票資產</label>
                     <input 
                       type="text" inputMode="decimal" pattern="[0-9.]*" placeholder="未填使用上次值"
                       value={entries[b.id]?.amount || ""} 
-                      onChange={(e) => handleEntryChange(b.id, "amount", e.target.value)} 
+                      onChange={(e) => handleEntryChange(b.id, "amount", e.target.value)}
+                      onFocus={(e) => e.target.select()} // 點擊全選
                       className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
                     />
                   </div>
@@ -252,7 +252,8 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                       <input 
                         type="text" inputMode="decimal" pattern="[0-9.]*" placeholder="選填"
                         value={entries[b.id]?.profit || ""} 
-                        onChange={(e) => handleEntryChange(b.id, "profit", e.target.value)} 
+                        onChange={(e) => handleEntryChange(b.id, "profit", e.target.value)}
+                        onFocus={(e) => e.target.select()} // 點擊全選
                         className="w-full bg-gray-950 pl-2.5 pr-10 py-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
                       />
                       <button type="button" onClick={() => toggleSign(b.id, "profit")} className="absolute right-1.5 px-1.5 py-1 rounded bg-gray-800 text-[10px] font-bold text-gray-400 active:bg-gray-700 active:text-white">+/-</button>
@@ -260,14 +261,14 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                   </div>
                 </div>
 
-                {/* 第二排：現金餘額 & 交割款 */}
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <label className="mb-1 block text-[11px] text-gray-500">3. 現金餘額</label>
                     <input 
                       type="text" inputMode="decimal" pattern="[0-9.]*" placeholder="帳戶內現金"
                       value={entries[b.id]?.cash_balance || ""} 
-                      onChange={(e) => handleEntryChange(b.id, "cash_balance", e.target.value)} 
+                      onChange={(e) => handleEntryChange(b.id, "cash_balance", e.target.value)}
+                      onFocus={(e) => e.target.select()} // 點擊全選
                       className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
                     />
                   </div>
@@ -277,7 +278,8 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                       <input 
                         type="text" inputMode="decimal" pattern="[0-9.]*" placeholder="預設 0"
                         value={entries[b.id]?.settlement_amount || ""} 
-                        onChange={(e) => handleEntryChange(b.id, "settlement_amount", e.target.value)} 
+                        onChange={(e) => handleEntryChange(b.id, "settlement_amount", e.target.value)}
+                        onFocus={(e) => e.target.select()} // 點擊全選
                         className="w-full bg-gray-950 pl-2.5 pr-10 py-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
                       />
                       <button type="button" onClick={() => toggleSign(b.id, "settlement_amount")} className="absolute right-1.5 px-1.5 py-1 rounded bg-gray-800 text-[10px] font-bold text-gray-400 active:bg-gray-700 active:text-white">+/-</button>
