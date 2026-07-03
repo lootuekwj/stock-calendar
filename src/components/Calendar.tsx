@@ -15,7 +15,7 @@ type Props = {
   snapshots: SnapshotWithBrokers[];
   brokers: Broker[];
   selectedBrokers: string[];
-  calcMode: "asset" | "profit"; 
+  calcMode: "asset" | "profit" | "total"; 
 };
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
@@ -66,28 +66,51 @@ export default function Calendar({
 
           const dayDetails = dailySnapshot?.broker_snapshots
             ?.filter((bs) => selectedBrokers.includes(bs.broker_id))
-            .map((bs) => {
+            .map((bs: any) => {
               const broker = brokers.find((b) => b.id === bs.broker_id);
               const prevBs = prevSnapshot?.broker_snapshots?.find((p) => p.broker_id === bs.broker_id);
               
               const hasPrev = !!prevBs;
+              // 股票資產
               const prevAsset = hasPrev ? Number(prevBs.amount || 0) : Number(bs.amount || 0);
+              const currentAsset = Number(bs.amount || 0);
+              // 累積損益
               const prevProfit = hasPrev ? Number(prevBs.profit || 0) : Number(bs.profit || 0);
-              
-              const dailyAssetChange = Number(bs.amount || 0) - prevAsset;
-              const dailyProfitChange = Number(bs.profit || 0) - prevProfit;
+              const currentProfit = Number(bs.profit || 0);
+              // 現金與交割
+              const currentCash = Number(bs.cash_balance || 0);
+              const currentSettlement = Number(bs.settlement_amount || 0);
+              const prevCash = hasPrev ? Number(prevBs.cash_balance || 0) : currentCash;
+              const prevSettlement = hasPrev ? Number(prevBs.settlement_amount || 0) : currentSettlement;
+
+              // 總資產計算
+              const currentTotal = currentAsset + currentCash + currentSettlement;
+              const prevTotal = prevAsset + prevCash + prevSettlement;
+
+              const dailyAssetChange = currentAsset - prevAsset;
+              const dailyProfitChange = currentProfit - prevProfit;
+              const dailyTotalChange = currentTotal - prevTotal;
 
               const dailyAssetPercent = (hasPrev && prevAsset !== 0) ? (dailyAssetChange / Math.abs(prevAsset)) : 0;
               const dailyProfitPercent = (hasPrev && prevProfit !== 0) ? (dailyProfitChange / Math.abs(prevProfit)) : 0;
+              const dailyTotalPercent = (hasPrev && prevTotal !== 0) ? (dailyTotalChange / Math.abs(prevTotal)) : 0;
+              
+              // 計算現金水位百分比
+              const cashLevelPercent = currentTotal !== 0 ? (currentCash / currentTotal) * 100 : 0;
 
               return {
                 name: broker?.name || "未知券商",
-                amount: Number(bs.amount || 0),
-                profit: Number(bs.profit || 0),
+                amount: currentAsset,
+                profit: currentProfit,
+                total: currentTotal,
+                cash: currentCash,
+                cashLevelPercent,
                 dailyAssetChange,
                 dailyProfitChange,
+                dailyTotalChange,
                 dailyAssetPercent,
-                dailyProfitPercent
+                dailyProfitPercent,
+                dailyTotalPercent
               };
             }) || [];
 
@@ -112,7 +135,8 @@ export default function Calendar({
                       <div className={`whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px] ${textColors[color]}`}>
                         {data.changeAmount > 0 ? "+" : ""}{formatCompact(data.changeAmount)}
                       </div>
-                      {calcMode === "asset" && data.changePercent !== null && (
+                      {/* 總資產模式與證券資產模式都會顯示 % 數 */}
+                      {(calcMode === "asset" || calcMode === "total") && data.changePercent !== null && (
                         <div className={`whitespace-nowrap text-[8px] leading-tight tracking-tighter sm:text-[10px] opacity-85 ${textColors[color]}`}>
                           ({data.changePercent > 0 ? "+" : ""}{(data.changePercent * 100).toFixed(2)}%)
                         </div>
@@ -123,18 +147,20 @@ export default function Calendar({
               )}
 
               {inMonth && (dayDetails.length > 0 || dailySnapshot?.note) && (
-                <div className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 -translate-x-1/2 flex-col rounded-xl border border-gray-700 bg-gray-950 p-3 text-gray-100 shadow-2xl transition-all sm:w-64 ${isTooltipActive ? "flex opacity-100" : "hidden group-hover:flex group-hover:opacity-100"}`}>
+                <div className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 flex-col rounded-xl border border-gray-700 bg-gray-950 p-3 text-gray-100 shadow-2xl transition-all sm:w-72 ${isTooltipActive ? "flex opacity-100" : "hidden group-hover:flex group-hover:opacity-100"}`}>
                   <div className="mb-2 flex items-center justify-between border-b border-gray-800 pb-1.5 text-xs text-gray-400">
                     <span>{format(day, "MM月dd日")}</span>
-                    <span>{calcMode === "asset" ? "資產明細" : "損益明細"}</span>
+                    <span>{calcMode === "asset" ? "證券明細" : calcMode === "profit" ? "損益明細" : "總資產明細"}</span>
                   </div>
                   
                   <div className="flex flex-col gap-2">
                     {dayDetails.map((d) => {
                       const isAssetMode = calcMode === "asset";
-                      const mainValue = isAssetMode ? d.amount : d.profit;
-                      const changeValue = isAssetMode ? d.dailyAssetChange : d.dailyProfitChange;
-                      const percentValue = isAssetMode ? d.dailyAssetPercent : d.dailyProfitPercent;
+                      const isTotalMode = calcMode === "total";
+                      
+                      const mainValue = isAssetMode ? d.amount : isTotalMode ? d.total : d.profit;
+                      const changeValue = isAssetMode ? d.dailyAssetChange : isTotalMode ? d.dailyTotalChange : d.dailyProfitChange;
+                      const percentValue = isAssetMode ? d.dailyAssetPercent : isTotalMode ? d.dailyTotalPercent : d.dailyProfitPercent;
                       
                       const isPositive = changeValue > 0;
                       const isNegative = changeValue < 0;
@@ -144,18 +170,26 @@ export default function Calendar({
                           <div className="mb-1 flex justify-between text-xs text-gray-400">
                             <span className="font-medium">{d.name}</span>
                           </div>
+                          
                           <div className="flex items-end justify-between">
                             <span className="text-sm font-semibold text-white">
                               {calcMode === "profit" && mainValue > 0 ? "+" : ""}{formatCurrency(mainValue)}
                             </span>
                             <span className={`text-[10px] font-medium ${isPositive ? "text-red-400" : isNegative ? "text-green-400" : "text-gray-500"}`}>
                               {isPositive ? "+" : ""}{formatCompact(changeValue)}
-                              {/* 完全修正：改用原生 JSX 標籤包覆，避免漏掉 $ 導致顯示原始碼 */}
-                              {calcMode === "asset" && (
+                              {(isAssetMode || isTotalMode) && (
                                 <> ({isPositive ? "+" : ""}{(percentValue * 100).toFixed(2)}%)</>
                               )}
                             </span>
                           </div>
+                          
+                          {/* 總資產模式專屬：顯示現金與現金水位 */}
+                          {isTotalMode && (
+                            <div className="mt-1.5 border-t border-gray-800/60 pt-1 flex justify-between text-[10px] text-gray-400">
+                              <span>證券: {formatCompact(d.amount)}</span>
+                              <span>現金: {formatCompact(d.cash)} (水位: {d.cashLevelPercent.toFixed(1)}%)</span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

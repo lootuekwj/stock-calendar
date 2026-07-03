@@ -12,7 +12,8 @@ type Props = {
   snapshots: SnapshotWithBrokers[];
   selectedBrokers: string[];
   currentMonth: Date;
-  calcMode: "asset" | "profit";
+  // 新增 total 模式
+  calcMode: "asset" | "profit" | "total";
   marketData: Map<string, number>;
 };
 
@@ -41,7 +42,33 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
     }
 
     const days = eachDayOfInterval({ start, end });
+    const startStr = format(start, "yyyy-MM-dd");
+
+    // 【跨月連貫核心邏輯】往回尋找 start 之前的最新一筆紀錄，作為月初比較的基準點
+    const prevSnap = [...snapshots].reverse().find(s => s.snapshot_date < startStr);
     
+    let prevUserAsset: number | null = null;
+    let prevUserProfit: number | null = null;
+    let prevUserTotal: number | null = null;
+    
+    if (prevSnap) {
+      let a = 0; let p = 0; let t = 0;
+      prevSnap.broker_snapshots?.forEach((bs: any) => {
+        if (selectedBrokers.includes(bs.broker_id)) {
+          const stock = Number(bs.amount || 0);
+          const profit = Number(bs.profit || 0);
+          const cash = Number(bs.cash_balance || 0);
+          const settlement = Number(bs.settlement_amount || 0);
+          a += stock;
+          p += profit;
+          t += (stock + cash + settlement);
+        }
+      });
+      prevUserAsset = a;
+      prevUserProfit = p;
+      prevUserTotal = t;
+    }
+
     let baseDateStr = "";
     let baseUserAsset = 0;
     let baseUserProfit = 0;
@@ -52,7 +79,7 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       if (snap && snap.broker_snapshots && snap.broker_snapshots.length > 0) {
         let totalAsset = 0;
         let totalProfit = 0;
-        snap.broker_snapshots.forEach(bs => {
+        snap.broker_snapshots.forEach((bs: any) => {
           if (selectedBrokers.includes(bs.broker_id)) {
             totalAsset += Number(bs.amount || 0);
             totalProfit += Number(bs.profit || 0);
@@ -83,8 +110,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
     const base0050Price = baseDateStr ? getRealMarketPrice(baseDateStr) : null;
     const virtualShares = (base0050Price && base0050Price > 0) ? (baseUserAsset / base0050Price) : 0;
 
-    let prevUserAsset: number | null = null;
-    let prevUserProfit: number | null = null;
     let prev0050Price: number | null = null;
     let prevBenchValue: number | null = null;
 
@@ -94,71 +119,74 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       
       let currentAsset: number | null = null;
       let currentProfit: number | null = null;
+      let currentTotal: number | null = null;
 
       if (snap) {
-        let a = 0; let p = 0;
-        snap.broker_snapshots?.forEach(bs => {
+        let a = 0; let p = 0; let t = 0;
+        snap.broker_snapshots?.forEach((bs: any) => {
           if (selectedBrokers.includes(bs.broker_id)) {
-            a += Number(bs.amount || 0);
-            p += Number(bs.profit || 0);
+            const stock = Number(bs.amount || 0);
+            const profit = Number(bs.profit || 0);
+            const cash = Number(bs.cash_balance || 0);
+            const settlement = Number(bs.settlement_amount || 0);
+            a += stock;
+            p += profit;
+            t += (stock + cash + settlement);
           }
         });
         currentAsset = a;
         currentProfit = p;
+        currentTotal = t;
       }
 
-      // 1. 計算真實資產的漲跌與 % 數 (永遠算資產報酬率)
-      let userAssetPct = null;
-      if (currentAsset !== null && prevUserAsset !== null && prevUserAsset !== 0) {
-        const assetChange = currentAsset - prevUserAsset;
-        userAssetPct = assetChange / Math.abs(prevUserAsset);
-      }
-      
-      // 2. 計算畫面上要顯示的增減金額 (根據模式切換)
+      // 決定目前模式下的主要數值與上一次的數值
+      let mainVal: number | null = null;
+      let prevMainVal: number | null = null;
+      if (calcMode === "asset") { mainVal = currentAsset; prevMainVal = prevUserAsset; }
+      else if (calcMode === "profit") { mainVal = currentProfit; prevMainVal = prevUserProfit; }
+      else if (calcMode === "total") { mainVal = currentTotal; prevMainVal = prevUserTotal; }
+
+      // 計算真實資產/損益的增減金額與 % 數
       let userChange = null;
-      if (calcMode === "profit") {
-        if (currentProfit !== null && prevUserProfit !== null) {
-          userChange = currentProfit - prevUserProfit;
-        }
-      } else {
-        if (currentAsset !== null && prevUserAsset !== null) {
-          userChange = currentAsset - prevUserAsset;
-        }
+      let userPct = null;
+      if (mainVal !== null && prevMainVal !== null && prevMainVal !== 0) {
+        userChange = mainVal - prevMainVal;
+        userPct = userChange / Math.abs(prevMainVal);
       }
 
+      // 更新下一輪使用的基準值
       if (currentAsset !== null) prevUserAsset = currentAsset;
       if (currentProfit !== null) prevUserProfit = currentProfit;
+      if (currentTotal !== null) prevUserTotal = currentTotal;
 
-      // 3. 計算 0050 真實股價的漲跌 % 數
-      const current0050Price = getRealMarketPrice(dateStr);
-      let benchPricePct = null;
-      if (current0050Price !== null && prev0050Price !== null && prev0050Price !== 0) {
-        benchPricePct = (current0050Price - prev0050Price) / Math.abs(prev0050Price);
-      }
-      if (current0050Price !== null) prev0050Price = current0050Price;
-
-      // 4. 計算 0050 虛擬基準線的數值與增減金額
+      // 0050 真實股價與對照線邏輯 (只有在 profit 模式下才計算)
       let currentBenchValue = null;
-      if (baseUserAsset !== 0 && current0050Price && base0050Price) {
-        if (calcMode === "asset") {
-          currentBenchValue = virtualShares * current0050Price;
-        } else {
+      let benchChange = null;
+      let benchPricePct = null;
+
+      if (calcMode === "profit") {
+        const current0050Price = getRealMarketPrice(dateStr);
+        if (current0050Price !== null && prev0050Price !== null && prev0050Price !== 0) {
+          benchPricePct = (current0050Price - prev0050Price) / Math.abs(prev0050Price);
+        }
+        if (current0050Price !== null) prev0050Price = current0050Price;
+
+        if (baseUserAsset !== 0 && current0050Price && base0050Price) {
           currentBenchValue = baseUserProfit + (current0050Price - base0050Price) * virtualShares;
         }
-      }
 
-      let benchChange = null;
-      if (currentBenchValue !== null && prevBenchValue !== null) {
-        benchChange = currentBenchValue - prevBenchValue;
+        if (currentBenchValue !== null && prevBenchValue !== null) {
+          benchChange = currentBenchValue - prevBenchValue;
+        }
+        if (currentBenchValue !== null) prevBenchValue = currentBenchValue;
       }
-      if (currentBenchValue !== null) prevBenchValue = currentBenchValue;
 
       return {
         date: dateStr,
         label: format(day, range === '1y' ? "MM/yy" : "M/d"),
-        amount: calcMode === "asset" ? currentAsset : currentProfit,
+        amount: mainVal, // 直接傳入對應模式算好的數值
         userChange,
-        userAssetPct,
+        userPct,
         benchAmount: currentBenchValue,
         benchChange,
         benchPricePct,
@@ -187,7 +215,7 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div className="h-2 w-2 rounded-full bg-blue-500"></div>
                 <span className="text-sm font-semibold text-gray-200">
-                  {calcMode === "asset" ? "真實資產" : "真實損益"}
+                  {calcMode === "asset" ? "證券資產" : calcMode === "profit" ? "真實損益" : "總資產"}
                 </span>
               </div>
               <div className="text-right">
@@ -195,8 +223,8 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
                 {data.userChange !== null && (
                   <div className={`mt-0.5 flex flex-col text-[11px] font-medium leading-tight tracking-tight ${data.userChange > 0 ? "text-red-400" : data.userChange < 0 ? "text-green-400" : "text-gray-500"}`}>
                     <span>{data.userChange > 0 ? "+" : ""}{formatCompact(data.userChange)}</span>
-                    {data.userAssetPct !== null && (
-                      <span className="opacity-90">({data.userAssetPct > 0 ? "+" : ""}{(data.userAssetPct * 100).toFixed(2)}%)</span>
+                    {data.userPct !== null && (
+                      <span className="opacity-90">({data.userPct > 0 ? "+" : ""}{(data.userPct * 100).toFixed(2)}%)</span>
                     )}
                   </div>
                 )}
@@ -204,8 +232,8 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
             </div>
           )}
 
-          {/* 0050 對照線區塊 */}
-          {data.benchAmount !== null && (
+          {/* 0050 對照線區塊 (僅在 profit 模式顯示) */}
+          {calcMode === "profit" && data.benchAmount !== null && (
             <div className="flex items-start justify-between gap-6 border-t border-gray-800/60 mt-2 pt-2">
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div className="h-2 w-2 rounded-full bg-gray-500"></div>
@@ -235,11 +263,14 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       <div className="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div className="flex flex-col">
           <h3 className="text-sm font-semibold text-gray-100">
-            {calcMode === "asset" ? "資產趨勢走勢" : "損益趨勢走勢"}
+            {calcMode === "asset" ? "證券趨勢走勢" : calcMode === "profit" ? "損益趨勢走勢" : "總資產趨勢走勢"}
           </h3>
-          <span className="text-[10px] text-gray-500">
-            {calcMode === "profit" ? "包含 0050 真實損益對照線" : "包含 0050 真實資產對照線"}
-          </span>
+          {/* 僅在損益模式顯示提示文字 */}
+          {calcMode === "profit" && (
+            <span className="text-[10px] text-gray-500">
+              包含 0050 真實損益對照線
+            </span>
+          )}
         </div>
         
         <div className="flex overflow-hidden rounded-lg border border-gray-800 bg-gray-950">
@@ -251,7 +282,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
 
       <div className="h-64 w-full sm:h-72">
         <RechartsResponsiveContainer width="100%" height="100%">
-          {/* 請對照這一段，將原本的這區塊替換掉 */}
           <RechartsLineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
             <RechartsCartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
             <RechartsXAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={{ stroke: "#4b5563" }} minTickGap={20} />
@@ -259,7 +289,7 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
             
             <RechartsTooltip content={<CustomTooltip />} />
             
-            {/* 【這就是你要找的地方】把這兩行替換成下面的判斷式 */}
+            {/* 0050 基準線 - 僅於損益模式渲染 */}
             {calcMode === "profit" && (
               <RechartsLine 
                 type="monotone" 
