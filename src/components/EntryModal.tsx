@@ -13,10 +13,10 @@ type Props = {
 };
 
 type EntryFields = {
-  amount: string;          // 股票資產
-  profit: string;          // 累積損益
-  cash_balance: string;    // 現金餘額
-  settlement_amount: string; // 交割款
+  amount: string;          
+  profit: string;          
+  cash_balance: string;    
+  settlement_amount: string; 
 };
 
 export default function EntryModal({ brokers, onClose, onSaved }: Props) {
@@ -74,10 +74,16 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         brokers.forEach((b) => {
           const prevBrokerData = prevSnapshot?.broker_snapshots?.find((bs: any) => bs.broker_id === b.id);
           
+          // 【核心修正】：將昨天的交割款與現金相加，自動滾入今天的現金餘額中
+          const prevCash = Number(prevBrokerData?.cash_balance || 0);
+          const prevSettlement = Number(prevBrokerData?.settlement_amount || 0);
+          const rolledCashBalance = prevCash + prevSettlement;
+          
           defaultEntries[b.id] = {
             amount: prevBrokerData?.amount?.toString() || "",
             profit: prevBrokerData?.profit?.toString() || "",
-            cash_balance: prevBrokerData?.cash_balance?.toString() || "",
+            // 如果加總後不為 0，則轉為字串預填，否則留空
+            cash_balance: rolledCashBalance === 0 ? "" : rolledCashBalance.toString(),
             settlement_amount: "0", 
           };
         });
@@ -222,7 +228,6 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* 加入 [color-scheme:dark] 讓電腦版原生日曆圖示變成白色 */}
           <input 
             type="date" 
             value={date} 
@@ -242,7 +247,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                       type="text" inputMode="decimal" pattern="[0-9.]*" placeholder="未填使用上次值"
                       value={entries[b.id]?.amount || ""} 
                       onChange={(e) => handleEntryChange(b.id, "amount", e.target.value)}
-                      onFocus={(e) => e.target.select()} // 點擊全選
+                      onFocus={(e) => e.target.select()}
                       className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
                     />
                   </div>
@@ -253,7 +258,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                         type="text" inputMode="decimal" pattern="[0-9.]*" placeholder="選填"
                         value={entries[b.id]?.profit || ""} 
                         onChange={(e) => handleEntryChange(b.id, "profit", e.target.value)}
-                        onFocus={(e) => e.target.select()} // 點擊全選
+                        onFocus={(e) => e.target.select()}
                         className="w-full bg-gray-950 pl-2.5 pr-10 py-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
                       />
                       <button type="button" onClick={() => toggleSign(b.id, "profit")} className="absolute right-1.5 px-1.5 py-1 rounded bg-gray-800 text-[10px] font-bold text-gray-400 active:bg-gray-700 active:text-white">+/-</button>
@@ -268,7 +273,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                       type="text" inputMode="decimal" pattern="[0-9.]*" placeholder="帳戶內現金"
                       value={entries[b.id]?.cash_balance || ""} 
                       onChange={(e) => handleEntryChange(b.id, "cash_balance", e.target.value)}
-                      onFocus={(e) => e.target.select()} // 點擊全選
+                      onFocus={(e) => e.target.select()}
                       className="w-full bg-gray-950 p-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
                     />
                   </div>
@@ -279,7 +284,7 @@ export default function EntryModal({ brokers, onClose, onSaved }: Props) {
                         type="text" inputMode="decimal" pattern="[0-9.]*" placeholder="預設 0"
                         value={entries[b.id]?.settlement_amount || ""} 
                         onChange={(e) => handleEntryChange(b.id, "settlement_amount", e.target.value)}
-                        onFocus={(e) => e.target.select()} // 點擊全選
+                        onFocus={(e) => e.target.select()}
                         className="w-full bg-gray-950 pl-2.5 pr-10 py-2.5 rounded-lg border border-gray-800 text-sm text-white focus:border-blue-500 focus:outline-none" 
                       />
                       <button type="button" onClick={() => toggleSign(b.id, "settlement_amount")} className="absolute right-1.5 px-1.5 py-1 rounded bg-gray-800 text-[10px] font-bold text-gray-400 active:bg-gray-700 active:text-white">+/-</button>
