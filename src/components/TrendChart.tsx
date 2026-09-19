@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { LineChart as RechartsLineChart, Line as RechartsLine, XAxis as RechartsXAxis, YAxis as RechartsYAxis, CartesianGrid as RechartsCartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer as RechartsResponsiveContainer } from "recharts";
 import { 
-  format, eachDayOfInterval, startOfMonth, endOfMonth, subMonths, subYears, subDays 
+  format, eachDayOfInterval, startOfMonth, endOfMonth, subMonths, subYears 
 } from "date-fns";
 import type { SnapshotWithBrokers } from "@/types";
 import { formatCurrency, formatCompact } from "@/lib/utils";
@@ -13,12 +13,11 @@ type Props = {
   selectedBrokers: string[];
   currentMonth: Date;
   calcMode: "asset" | "profit" | "total";
-  marketData: Map<string, number>;
 };
 
 type TimeRange = 'calendar' | '1m' | '3m' | '6m' | '1y';
 
-export default function TrendChart({ snapshots, selectedBrokers, currentMonth, calcMode, marketData }: Props) {
+export default function TrendChart({ snapshots, selectedBrokers, currentMonth, calcMode }: Props) {
   const [range, setRange] = useState<TimeRange>('calendar');
 
   const chartData = useMemo(() => {
@@ -69,75 +68,10 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       prevUserTotal = t;
     }
 
-    let baseDateStr = "";
-    let baseUserAsset = 0;
-    let baseUserProfit = 0;
-    
-    // 【核心修正】：優先使用「前一筆紀錄(例如 6/30)」當作 0050 的基準定錨點！
-    // 這樣 7/1 就不會被強制歸零貼齊，而是會真實延續 6/30 的差距
-    if (prevSnap && prevUserAsset !== null && prevUserProfit !== null) {
-      baseDateStr = prevSnap.snapshot_date;
-      baseUserAsset = prevUserAsset;
-      baseUserProfit = prevUserProfit;
-    } else {
-      // 如果完全沒有前一筆資料（例如剛開始用 App 的第一個月），才往後找本月第一筆
-      for (const day of days) {
-        const dStr = format(day, "yyyy-MM-dd");
-        if (dStr > todayStr) break; 
-  
-        const snap = snapshots.find(s => s.snapshot_date === dStr);
-        if (snap && snap.broker_snapshots && snap.broker_snapshots.length > 0) {
-          let totalAsset = 0;
-          let totalProfit = 0;
-          snap.broker_snapshots.forEach((bs: any) => {
-            if (selectedBrokers.includes(bs.broker_id)) {
-              totalAsset += Number(bs.amount || 0);
-              totalProfit += Number(bs.profit || 0);
-            }
-          });
-          
-          if (totalAsset !== 0) {
-            baseDateStr = dStr;
-            baseUserAsset = totalAsset;
-            baseUserProfit = totalProfit;
-            break;
-          }
-        }
-      }
-    }
-
-    const getRealMarketPrice = (dateStr: string) => {
-      let checkDate = new Date(dateStr);
-      for (let i = 0; i < 7; i++) {
-        const checkStr = format(checkDate, "yyyy-MM-dd");
-        if (marketData.has(checkStr)) {
-          return marketData.get(checkStr) as number;
-        }
-        checkDate = subDays(checkDate, 1);
-      }
-      return null;
-    };
-
-    const base0050Price = baseDateStr ? getRealMarketPrice(baseDateStr) : null;
-    const virtualShares = (base0050Price && base0050Price > 0) ? (baseUserAsset / base0050Price) : 0;
-
-    let prev0050Price: number | null = null;
-    let prevBenchValue: number | null = null;
-
-    if (prevSnap && base0050Price && virtualShares > 0) {
-      prev0050Price = getRealMarketPrice(prevSnap.snapshot_date);
-      if (prev0050Price !== null) {
-        if (calcMode === "profit") {
-          prevBenchValue = baseUserProfit + (prev0050Price - base0050Price) * virtualShares;
-        } else if (calcMode === "asset") {
-          prevBenchValue = virtualShares * prev0050Price;
-        }
-      }
-    }
-
     return days.map(day => {
       const dateStr = format(day, "yyyy-MM-dd");
 
+      // 切除未來日期
       if (dateStr > todayStr) {
         return {
           date: dateStr,
@@ -145,9 +79,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
           amount: null,
           userChange: null,
           userPct: null,
-          benchAmount: null,
-          benchChange: null,
-          benchPricePct: null,
         };
       }
 
@@ -192,39 +123,15 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
       if (currentProfit !== null) prevUserProfit = currentProfit;
       if (currentTotal !== null) prevUserTotal = currentTotal;
 
-      let currentBenchValue = null;
-      let benchChange = null;
-      let benchPricePct = null;
-
-      if (calcMode === "profit") {
-        const current0050Price = getRealMarketPrice(dateStr);
-        if (current0050Price !== null && prev0050Price !== null && prev0050Price !== 0) {
-          benchPricePct = (current0050Price - prev0050Price) / Math.abs(prev0050Price);
-        }
-        if (current0050Price !== null) prev0050Price = current0050Price;
-
-        if (baseUserAsset !== 0 && current0050Price && base0050Price) {
-          currentBenchValue = baseUserProfit + (current0050Price - base0050Price) * virtualShares;
-        }
-
-        if (currentBenchValue !== null && prevBenchValue !== null) {
-          benchChange = currentBenchValue - prevBenchValue;
-        }
-        if (currentBenchValue !== null) prevBenchValue = currentBenchValue;
-      }
-
       return {
         date: dateStr,
         label: format(day, range === '1y' ? "MM/yy" : "M/d"),
         amount: mainVal,
         userChange,
         userPct,
-        benchAmount: currentBenchValue,
-        benchChange,
-        benchPricePct,
       };
     });
-  }, [snapshots, selectedBrokers, currentMonth, range, calcMode, marketData]);
+  }, [snapshots, selectedBrokers, currentMonth, range, calcMode]);
 
   const rangeButtons: { id: TimeRange; label: string }[] = [
     { id: 'calendar', label: '本月' },
@@ -242,7 +149,7 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
           <p className="mb-2 border-b border-gray-800 pb-1 text-xs text-gray-400">日期：{data.date}</p>
           
           {data.amount !== null && (
-            <div className="mb-2 flex items-start justify-between gap-6">
+            <div className="flex items-start justify-between gap-6">
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div className="h-2 w-2 rounded-full bg-blue-500"></div>
                 <span className="text-sm font-semibold text-gray-200">
@@ -262,26 +169,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
               </div>
             </div>
           )}
-
-          {calcMode === "profit" && data.benchAmount !== null && (
-            <div className="flex items-start justify-between gap-6 border-t border-gray-800/60 mt-2 pt-2">
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <div className="h-2 w-2 rounded-full bg-gray-500"></div>
-                <span className="text-sm font-semibold text-gray-400">0050 對照</span>
-              </div>
-              <div className="text-right">
-                <div className="text-sm font-bold text-gray-300">{formatCurrency(data.benchAmount)}</div>
-                {data.benchChange !== null && (
-                  <div className={`mt-0.5 flex flex-col text-[11px] font-medium leading-tight tracking-tight ${data.benchChange > 0 ? "text-red-400/90" : data.benchChange < 0 ? "text-green-400/90" : "text-gray-500"}`}>
-                    <span>{data.benchChange > 0 ? "+" : ""}{formatCompact(data.benchChange)}</span>
-                    {data.benchPricePct !== null && (
-                      <span className="opacity-90">({data.benchPricePct > 0 ? "+" : ""}{(data.benchPricePct * 100).toFixed(2)}%)</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       );
     }
@@ -291,16 +178,9 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
   return (
     <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4 shadow-sm sm:p-5">
       <div className="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-        <div className="flex flex-col">
-          <h3 className="text-sm font-semibold text-gray-100">
-            {calcMode === "asset" ? "證券趨勢走勢" : calcMode === "profit" ? "損益趨勢走勢" : "總資產趨勢走勢"}
-          </h3>
-          {calcMode === "profit" && (
-            <span className="text-[10px] text-gray-500">
-              包含 0050 真實損益對照線
-            </span>
-          )}
-        </div>
+        <h3 className="text-sm font-semibold text-gray-100">
+          {calcMode === "asset" ? "證券趨勢走勢" : calcMode === "profit" ? "損益趨勢走勢" : "總資產趨勢走勢"}
+        </h3>
         
         <div className="flex overflow-hidden rounded-lg border border-gray-800 bg-gray-950">
           {rangeButtons.map((btn) => (
@@ -317,19 +197,6 @@ export default function TrendChart({ snapshots, selectedBrokers, currentMonth, c
             <RechartsYAxis tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false} tickFormatter={(v) => v >= 10000 || v <= -10000 ? `${(v / 10000).toFixed(0)}w` : String(v)} />
             
             <RechartsTooltip content={<CustomTooltip />} />
-            
-            {calcMode === "profit" && (
-              <RechartsLine 
-                type="monotone" 
-                dataKey="benchAmount" 
-                stroke="#6b7280" 
-                strokeWidth={2} 
-                strokeDasharray="5 5" 
-                dot={false} 
-                activeDot={{ r: 4, fill: "#6b7280", stroke: "#111827", strokeWidth: 2 }} 
-                connectNulls={true} 
-              />
-            )}
             
             <RechartsLine 
               type="monotone" 
